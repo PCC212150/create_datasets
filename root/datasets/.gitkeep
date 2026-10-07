@@ -1,0 +1,4 @@
+# 这个文件夹是**交付物**：标完的图会从 ../pictures/ 移过来，同时写一份同名的
+# labelme json（root 多边形 + 根长折线 + stem + check_background）和
+# masks\<名>.png（像素级 root 掩码，训练直接吃的那份）。
+# 标注数据不入库，这里只留这个占位文件。

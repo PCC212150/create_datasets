@@ -1,0 +1,21 @@
+# 标注工具的依赖。版本按**开发时实测跑通的环境**钉死（conda env pcc, Python 3.12.13）。
+#
+# 两种用法：
+#   1) 首选用 run.bat —— 便携运行时 runtime\ 已经按这份清单装好了，不用管这个文件；
+#   2) 自己有 Python 3.12 的话：
+#        pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#        pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# **torch 故意不写在这里**：PyPI 上 Windows 的 torch 默认是带 CUDA 的包（装完 2~3GB），
+# 而这个工具跑 CPU 就够（每张图 3 秒上下）。CPU 版要从 pytorch 自己的 index 装 ——
+# 就是上面第二条命令。装完约 350MB，整份数据发给别人时体积差 5 倍。
+#
+# 少了任何一条都会在启动时报 ImportError，报什么装什么即可。
+
+numpy==2.4.4
+pillow==12.2.0
+opencv-python==5.0.0.93
+scipy==1.18.0
+scikit-image==0.26.0
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.2
