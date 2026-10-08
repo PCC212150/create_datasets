@@ -11,6 +11,8 @@ root/runtime/
 # 单个 .pth 124MB，**GitHub 单文件上限 100MB，推上去会被直接拒收**。
 # 权重从别处拷进 root/model/<版本名>/ 即可（hparams.json 和测试 CSV 很小，保留入库）。
 root/model/**/*.pth
+# 打包好的权重组（109MB，同样超上限）—— 要发给别人就直接发这个 zip，别入库
+root/model*.zip
 
 # ---- 数据（只保留占位文件，避免仓库过大）----
 root/pictures/*

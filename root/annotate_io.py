@@ -379,7 +379,9 @@ class RootPolygonBuilder:
         approx_px = ROOT_POLY_APPROX_PX if approx_px is None else approx_px
         min_area = ROOT_POLY_MIN_AREA if min_area is None else min_area
         width = max(1, int(round(width)))
-        gap_min = max(6.0, width * 0.5) if gap_min is None else gap_min
+        # 门槛设成 0：**任何**没落进自己切片的段都补带。判据已经是逐点的，留下的
+        # 都是真缺口 —— 没有「太短所以不补」的道理，那不补的就是丢掉的根。
+        gap_min = 0.0 if gap_min is None else gap_min
         close_r = max(2, width // 4) if close_r is None else close_r
         lines = [list(l) for l in polylines if len(l) >= 2]
         info = {"n_lines": len(lines), "n_empty": 0, "n_dropped_blocks": 0,
@@ -422,9 +424,17 @@ class RootPolygonBuilder:
         lab = self._labels_local(x0, y0, x1, y1)
         region = (mask[y0:y1, x0:x1]) & (lab == label)
 
-        # 沿折线找"掩码缺了"的连续段
+        # 沿折线找"掩码缺了"的连续段。
+        #
+        # **判据是逐点**（只看折线正中那一点），而不是"±宽度/2 内有掩码就算有"。
+        # 2026-10-07 实测踩到的坑：切片之间常有几像素宽的**窄缝**（多半来自 1/4 尺度
+        # 分区图放大后的块状边界），大窗口会把窄缝判成"有掩码"→ 不补带 → 切片连不起来
+        # → 最后"只留最大连通块"就把真实的一块根丢了（某图一条线 24540px 只留下 13730px，
+        # 表现就是"折线没被自己的多边形包住"）。逐点判据下窄缝会被补掉，多边形成为
+        # 一条**沿折线的连续走廊**，从根上保证折线一定在自己的多边形里。
+        # 另留 2px 小窗口，免得折线贴着掩码边缘走时被逐像素的锯齿反复判成"缺"。
         pts = np.asarray(line, np.float32)
-        r = max(3, width // 2)
+        r = 2
         samples = _sample_polyline(pts, step=2.0)
         band = np.zeros((lh, lw), bool)
         run = []

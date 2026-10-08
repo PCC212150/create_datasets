@@ -30,7 +30,8 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
     左键/右键/双击  折线：加点 / 结束这条 / 也结束这条
     Alt+点击       在离点击最近的位置**插入一个控制点**（超出两端就接到最近那个端点）
     拖动控制点      直接拖走
-    点控制点选中    Delete 删这一个点；X 删**整条**；B 在鼠标处**断成两条**（交叉处用）
+    点控制点选中    Delete 删这一个点；X 删**整条**
+                    B 在鼠标处**断成两条**（交叉处用）  J 和鼠标附近那条**接成一条**
     Ctrl+S         保存并跳下一张        PgDn / PgUp  下一张 / 上一张
     F5             重新扫描目录（在资源管理器里删/加了图片之后用）
     D / K          本图不要 stem / 不要 check_background（预测明显错时用，再按恢复）
@@ -576,6 +577,9 @@ class Canvas(QWidget):
         if k == Qt.Key_B and self.phase == 1:
             self._split_selected_line()
             return
+        if k == Qt.Key_J and self.phase == 1:
+            self._join_selected_line()
+            return
         if k in (Qt.Key_Return, Qt.Key_Enter):
             self.win.set_phase(1 - self.phase)
             return
@@ -725,6 +729,69 @@ class Canvas(QWidget):
         self.win.set_dirty(True)
         self.refresh()
         self.win.flash(f"断开成两条（{len(left)} 点 + {len(right)} 点）· Ctrl+Z 可撤回")
+
+    def _join_selected_line(self):
+        """把选中的折线与「**离鼠标最近的那条**」接成一条（`B` 的逆操作）。
+
+        怎么接：取两条线之间**离得最近的那对端点**，把各自的走向理顺（让要接的端点
+        都排到接头处），再首尾相接。
+        所以「`B` 在交叉处断开 → `J` 接回去」= 原样还原：断开时两条线共用切点，
+        接回来时重合的那个点会自动去掉，点和顺序都跟原来一样。
+
+        和 `B` 一样用"离鼠标最近"来指定目标：点一下控制点选中第一条（整条变青色），
+        把鼠标放到要接的那条附近按 `J` 就行。
+        """
+        doc = self.doc
+        if doc is None:
+            return
+        line_a = self._line_by_id(self._sel[0]) if self._sel else None
+        if line_a is None or len(line_a) < 2:
+            self.win.flash("先点一下折线上的控制点选中它（整条变青色），"
+                           "把鼠标放到要接上的那条附近，再按 J")
+            return
+        if self._mouse_screen is None:
+            self.win.flash("把鼠标放到要接上的那条折线附近再按 J")
+            return
+        x, y = self._img_pt(self._mouse_screen)
+        pool = list(doc.polylines) + ([doc.cur_line] if len(doc.cur_line) >= 2 else [])
+        best = None
+        for l in pool:
+            if l is line_a:
+                continue
+            _seg, _t, d, _pt = core.nearest_on_polyline(l, x, y)
+            if best is None or d < best[0]:
+                best = (d, l)
+        if best is None:
+            self.win.flash("没有别的折线可以接（至少要两条）")
+            return
+        line_b = best[1]
+        # 最近的那对端点：i=0 表示 a 的头最近，i=1 表示 a 的尾最近（b 同理）
+        ends_a, ends_b = (line_a[0], line_a[-1]), (line_b[0], line_b[-1])
+        d = [[float(np.hypot(pa[0] - pb[0], pa[1] - pb[1])) for pb in ends_b]
+             for pa in ends_a]
+        i, j = np.unravel_index(int(np.argmin(d)), (2, 2))
+        merged = (list(line_a) if i == 1 else list(reversed(line_a)))
+        tail = (list(line_b) if j == 0 else list(reversed(line_b)))
+        if d[i][j] < 1.0:
+            tail = tail[1:]        # 两端本来就重合（断开留下的）：别留重复点
+        merged = merged + tail
+        self._pl_snapshot()
+        if line_b is doc.cur_line:
+            doc.cur_line = []
+        else:
+            doc.polylines = [l for l in doc.polylines if l is not line_b]
+        k = next((n for n, l in enumerate(doc.polylines) if l is line_a), None)
+        if k is None:              # 选中的那条就是正在画的：两条都转正
+            doc.cur_line = []
+            doc.polylines.append(merged)
+        else:
+            doc.polylines[k] = merged
+        self._sel = (id(merged), len(merged) - 1)
+        self._hover = None
+        self.win.set_dirty(True)
+        self.refresh()
+        self.win.flash(f"接成一条（{len(line_a)} + {len(line_b)} 点 → {len(merged)} 点，"
+                       f"接头间距 {d[i][j]:.0f}px）· Ctrl+Z 可撤回")
 
     def _delete_selected_line(self):
         """删除**整条**折线（连它的所有控制点一起）。
@@ -1413,6 +1480,8 @@ class MainWindow(QMainWindow):
                  lambda: self.canvas._delete_selected_line()),
                 ("断开折线", "B，鼠标放在要断的地方（选中的那条会变青色）",
                  lambda: self.canvas._split_selected_line()),
+                ("连接折线", "J，鼠标放在要接的那条附近；先点控制点选中第一条",
+                 lambda: self.canvas._join_selected_line()),
                 ("清空折线", "折线全部删掉（可撤销）",
                  lambda: self.canvas.clear_polylines()),
                 # 方向：**阈值越低、掩码越粗**（低阈值把弱响应也拉进来，见 mask_from_prob）。
@@ -1591,6 +1660,7 @@ KEYS_HELP = """阶段 1 · 修掩码（红=模型预测的根）
   Alt+点击          在离点击最近的位置插入一个控制点
   拖动控制点        直接拖走
   点控制点选中      Delete 删这一个点    X 或 Shift+Delete 删**整条**（选中的那条会变青色）
+  J                 把选中的那条和「离鼠标最近的那条」**接成一条**（B 的逆操作）
   B                 把选中的那条**断成两条**：切点在「离鼠标最近的位置」
                     （交叉处切一刀最常用；切点落在段中间会自动插一个新控制点）
   , / .             折线带宽 -1 / +1 px（工具栏上也有数字框）
@@ -1847,6 +1917,24 @@ def run_selftest(args):
               f"多边形高 {h1:.0f}px（带宽 12）")
     check("没折线经过的掩码块被丢掉", info2["n_dropped_blocks"] == 1,
           f"丢掉 {info2['n_dropped_blocks']} 块 / {info2['dropped_area']} px²")
+    # **折线必须完整落在自己的多边形里**（2026-10-07 用户报的："有些折线未被多边形包含"）。
+    # 根因：切片之间常有几像素宽的**窄缝**（1/4 尺度分区图放大后的块状边界），
+    # 而原来判"缺不缺"用的是"±宽度/2 内有掩码就算有"→ 窄缝全被判成"有"→ 不补带 →
+    # 切片连不起来 → 只留最大连通块 → 真实的一块根被丢（实测某图一条线只剩 51%）。
+    # 这里就用一条 40px 宽的根、中间切一道 4px 窄缝来复现它。
+    m3 = np.zeros((600, 900), np.uint8)
+    m3[280:320, 100:500] = 255            # 40px 宽的根
+    m3[:, 296:300] = 0                    # 4px 窄缝：两侧掩码都在 ±6px 内
+    line3 = [[(110.0, 300.0), (490.0, 300.0)]]
+    polys3, _ = RootPolygonBuilder(m3.shape).polygons(m3, line3, 12)
+    from common.gt_mask import draw_polygons_at as _dp
+    pm3 = _dp([[tuple(p) for p in q] for q in polys3 if q], (900, 600))
+    q3 = np.clip(np.round(np.linspace([110, 300], [490, 300], 200)).astype(int),
+                 [0, 0], [899, 599])
+    frac = pm3[q3[:, 1], q3[:, 0]].mean()
+    check("窄缝两侧的掩码必须被接起来（折线完整落在自己的多边形里）",
+          frac > 0.995, f"折线在多边形内的比例 {frac * 100:.1f}%（修前约 50%）")
+
     # 带宽变化要真的改变结果（界面上的旋钮才有意义）
     _, info_w = RootPolygonBuilder(m.shape).polygons(m, test_lines, 40)
     check("带宽可调（40px 时补出来的带更粗）",
@@ -2052,6 +2140,7 @@ def run_selftest(args):
     # 断开（在交叉处切一刀）：几何必须严丝合缝，不能裂出一道缝
     n_lines = len(c.doc.polylines)
     line = c.doc.polylines[0]
+    orig_line = [tuple(p) for p in line]      # 断开前的原样，一会儿 J 接回来要逐点比
     mid_seg = max(1, len(line) // 2 - 1)
     if mid_seg < len(line) - 1:
         a, b = line[mid_seg], line[mid_seg + 1]
@@ -2071,8 +2160,57 @@ def run_selftest(args):
                   - core.polyline_length(line)) < 0.6,
               f"{core.polyline_length(line):.1f} -> "
               f"{core.polyline_length(l1) + core.polyline_length(l2):.1f} px")
+        # J 接回去：应该跟断开前一模一样（B→J 是原样还原）
+        lineA, lineB = c.doc.polylines[0], c.doc.polylines[1]
+        pa = c.doc.vp.image_to_screen(*lineA[-1])
+        c.mousePressEvent(mev(QEvent.MouseButtonPress, int(pa[0]), int(pa[1])))
+        c.mouseReleaseEvent(mev(QEvent.MouseButtonRelease, int(pa[0]), int(pa[1])))
+        pb = c.doc.vp.image_to_screen(*lineB[len(lineB) // 2])
+        c.mouseMoveEvent(mev(QEvent.MouseMove, int(pb[0]), int(pb[1]),
+                             Qt.NoButton, Qt.NoButton))
+        c.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_J, Qt.NoModifier))
+        check("J 把两条接回一条", len(c.doc.polylines) == n_lines,
+              f"{n_lines + 1} -> {len(c.doc.polylines)} 条")
+        if len(c.doc.polylines) == n_lines:
+            # 注意：**点数会多 1** —— 断开时切点落在段中间，会插入一个新控制点，
+            # 接回来时它是共线的（几何没变，总长那条检查已经证明了）。所以这里比的是
+            # "几何原样还原"：总长相同 + 两端点相同，而不是逐点数量相同。
+            back = c.doc.polylines[0]
+            dl = abs(core.polyline_length(back) - core.polyline_length(orig_line))
+            ends_ok = (abs(back[0][0] - orig_line[0][0]) < 0.51
+                       and abs(back[0][1] - orig_line[0][1]) < 0.51
+                       and abs(back[-1][0] - orig_line[-1][0]) < 0.51
+                       and abs(back[-1][1] - orig_line[-1][1]) < 0.51)
+            check("接回来的几何与断开前一致（总长 + 两端点）", dl < 0.6 and ends_ok,
+                  f"总长差 {dl:.2f}px，点数 {len(orig_line)} -> {len(back)}"
+                  f"（多的是切出来的那个共线点）")
+        # 两条**分开**的线（中间有缺口）：接上后总长 = 两条之和 + 缺口，
+        # 端点应该取"离得最近的那一对"（而不是别的组合）
+        keep_polys = c.doc.polylines
+        c.doc.polylines = [[(100.0, 100.0), (200.0, 100.0)],
+                           [(300.0, 100.0), (400.0, 100.0)]]
+        c._sel = (id(c.doc.polylines[0]), 0)          # 选中第一条
+        sx2, sy2 = c.doc.vp.image_to_screen(350.0, 100.0)   # 鼠标放到第二条上
+        c.mouseMoveEvent(mev(QEvent.MouseMove, int(sx2), int(sy2),
+                             Qt.NoButton, Qt.NoButton))
+        c.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_J, Qt.NoModifier))
+        if len(c.doc.polylines) == 1:
+            L = core.polyline_length(c.doc.polylines[0])
+            check("两条分开的线接上：总长 = 两条 + 缺口（100+100+100）",
+                  abs(L - 300) < 1.0 and len(c.doc.polylines[0]) == 4,
+                  f"总长 {L:.1f}px，{len(c.doc.polylines[0])} 个点")
+        else:
+            check("两条分开的线接上", False, f"还是 {len(c.doc.polylines)} 条")
+        c.doc.polylines = keep_polys
+        c._sel = c._hover = None
+        if c._pl_undo:
+            c._pl_undo.pop()      # 上面那次 J 压进撤销栈的快照也撤掉，别影响后面的撤销检查
+
         win.undo()
-        check("撤销把断开还原", len(c.doc.polylines) == n_lines,
+        check("撤销 J 又回到两条", len(c.doc.polylines) == n_lines + 1,
+              f"回到 {len(c.doc.polylines)} 条")
+        win.undo()
+        check("再撤销 B 回到原始那条", len(c.doc.polylines) == n_lines,
               f"回到 {len(c.doc.polylines)} 条")
 
     # 多边形预览 + 带宽旋钮（这两样连着"存出来是什么形状"）
@@ -2237,7 +2375,7 @@ def parse_args(argv=None):
     p.add_argument("--prefetch", action="store_true", help="只跑预测填缓存，不开界面")
     p.add_argument("--selftest", action="store_true", help="无界面自检")
     p.add_argument("--backfill-masks", action="store_true",
-                   help="给已经存过 json 的图补一份像素级掩码（数据在缓存里，不用重标）")
+                   help="把已经存过的图的 json/掩码/overlay 按当前代码重新生成一遍（数据在缓存里，不用重标）")
     p.add_argument("--no-gpu", action="store_true", help="强制 CPU 预测")
     p.add_argument("--no-cache", action="store_true", help="忽略缓存，全部重新预测")
     p.add_argument("--keep-pictures", action="store_true",
@@ -2268,9 +2406,19 @@ def run_backfill_masks(args):
             continue
         store = core.MaskStore(c["pred"], c.get("add"), c.get("dele"))
         meta = c["meta"]
-        arr = IO.build_mask_png(store.final_mask())      # 黑底白条，只有 root
-        fp = IO.save_mask_png(args.datasets or IO.DATASETS_DIR, p.stem, arr)
-        print(f"  {p.stem}: 根 {int((arr > 0).sum())} px -> {fp.name}")
+        # 走**保存那条正式路径**（而不是自己拼一遍）：json、掩码、overlay 三样一起重生成，
+        # 口径永远和"在工具里按一次 Ctrl+S"一致。move_pictures=False —— 图早就在
+        # datasets 里了，别再去动 pictures。
+        out = IO.save_annotation(
+            p.stem, p.name, store.pred.shape, store.final_mask(),
+            [list(map(tuple, l)) for l in meta.get("polylines", [])],
+            stem_polygons=() if meta.get("drop_stem") else (meta.get("stem_polys") or ()),
+            check_box=None if meta.get("drop_check") else meta.get("check_box"),
+            drop_stem=bool(meta.get("drop_stem")), drop_check=bool(meta.get("drop_check")),
+            src_image=p, datasets_dir=args.datasets, move_pictures=False,
+            poly_width=meta.get("poly_width"))
+        print(f"  {p.stem}: root 多边形 {out['n_root_poly']} 个 / 折线 "
+              f"{out['n_polyline']} 条 -> {out['json'].name} + masks/")
         n_ok += 1
     print(f"补了 {n_ok} 张" + (f"，{n_skip} 张没有缓存被跳过" if n_skip else ""))
     return 0
