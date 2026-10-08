@@ -149,10 +149,10 @@ def parse_other(json_path, image_size=None, verbose: bool = True) -> OtherLabels
     # 直接污染根数与掩码。所以**有多边形就只用多边形**（老的折线数据集没有多边形，不受影响）。
     if root_polys:
         if root_lines:
-            # **整个进程只提醒一次**（2026-10-06 改）：标注工具产出的 json **每张都是**
+            # **整个进程只提醒一次**（2026-10-08 改）：标注工具产出的 json **每张都是**
             # 「多边形 + 折线」这个形态（折线记根长、多边形是掩码真值，两者本就该并存），
-            # 一个 32 张的数据集会给训练/测试刷 32 行一模一样的告警，噪音盖过别的信息。
-            # 这条提醒本身要保留 —— 它是"一根不会被数成两根"的可见证据。
+            # 一份 11 张的 GT 会刷 11 行一模一样的告警，噪音盖过别的信息。
+            # 这条提醒本身保留 —— 它是"一根不会被数成两根"的可见证据。
             global _warned_mixed_root
             if not _warned_mixed_root:
                 _warned_mixed_root = True

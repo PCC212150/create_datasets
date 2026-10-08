@@ -34,7 +34,7 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
                     B 在鼠标处**断成两条**（交叉处用）  J 和鼠标附近那条**接成一条**
     Ctrl+S         保存并跳下一张        PgDn / PgUp  下一张 / 上一张
     F5             重新扫描目录（在资源管理器里删/加了图片之后用）
-    D / K          本图不要 stem / 不要 check_background（预测明显错时用，再按恢复）
+    工具栏「丢弃stem/丢弃check」  本图不写这两个标注（再点恢复）——故意没绑快捷键
     Ctrl+R         清空所有修改，回到纯预测（可撤销）      F1 键位帮助
 
 ## 产物
@@ -49,6 +49,7 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
 """
 import argparse
 import atexit
+import json
 import shutil
 import sys
 import time
@@ -1285,8 +1286,12 @@ class MainWindow(QMainWindow):
                                                "width": doc.poly_width}
         else:
             t0 = time.time()
-            doc.polygons, doc.poly_info = doc.poly_builder.polygons(
+            groups, doc.poly_info = doc.poly_builder.polygons(
                 doc.final_mask(), lines, doc.poly_width)
+            # 分组 -> 摊平：画布、状态栏、保存都只关心"有哪些形状"。
+            # 一条折线出多个多边形是允许的（见 RootPolygonBuilder.polygons 的说明），
+            # 分组信息留在 poly_info["per_line"] 里。
+            doc.polygons = [q for g in groups for q in g]
             doc.poly_info["ms"] = (time.time() - t0) * 1000
         self.update_status()
         self.canvas.update()          # 多边形是矢量画的，重画就行，不用重合成帧缓冲
@@ -1489,8 +1494,10 @@ class MainWindow(QMainWindow):
                 # "松"是阈值变小，不是变大。
                 ("预测松一点（更粗）", "[ 阈值 −0.02", lambda: self.adjust_threshold(-0.02)),
                 ("预测紧一点（更细）", "] 阈值 +0.02", lambda: self.adjust_threshold(+0.02)),
-                ("丢弃stem", "D", lambda: self.toggle_drop("stem")),
-                ("丢弃check", "K", lambda: self.toggle_drop("check")),
+                ("丢弃stem", "本图不写 stem 标注（只能点这里，没有快捷键）",
+                 lambda: self.toggle_drop("stem")),
+                ("丢弃check", "本图不写 check_background 标注（只能点这里）",
+                 lambda: self.toggle_drop("check")),
                 ("重置修改", "Ctrl+R", self.reset_edits),):
             a = QAction(text, self)
             a.setToolTip(f"{text}（{tip}）" if tip else text)
@@ -1616,10 +1623,10 @@ class MainWindow(QMainWindow):
             self.canvas.show_poly = not self.canvas.show_poly
             self.canvas.update()
             self.flash("多边形预览 开" if self.canvas.show_poly else "多边形预览 关（P 恢复）")
-        elif k == Qt.Key_D:
-            self.toggle_drop("stem")
-        elif k == Qt.Key_K:
-            self.toggle_drop("check")
+        # D / K 两个键**故意不绑**（2026-10-08 用户要求）：它们会把这张图的
+        # stem / check 标注整个丢掉，按错了不容易发现（实测已经有两张 GT 是中招的，
+        # 训练时那两个通道的损失被静默屏蔽）。改成只能点工具栏按钮 —— 慢一点，
+        # 但不会误触。
         elif k == Qt.Key_F1:
             self.help_box()
         elif k in (Qt.Key_Plus, Qt.Key_Equal):
@@ -1671,7 +1678,8 @@ KEYS_HELP = """阶段 1 · 修掩码（红=模型预测的根）
   PgDn / PgUp       下一张 / 上一张      F5  重新扫描目录（外部删/加了图片后刷新列表）
   中键拖动 / 空格+左键拖动   平移      Ctrl+滚轮 / + -  缩放
   Ctrl+0 适应窗口   Ctrl+1 100%        F1  这个帮助
-  D / K             本图不要 stem / 不要 check_background（再按恢复）"""
+  工具栏按钮「丢弃stem / 丢弃check」  本图不写这两个标注（再点恢复）——
+                                      **故意没有快捷键**：按错了会把整张图的标注丢掉"""
 
 
 # ------------------------------------------------------------------ 无界面模式
@@ -1851,7 +1859,10 @@ def run_selftest(args):
     shapes = json.load(open(out["json"], encoding="utf-8"))["shapes"]
     n_line = sum(1 for s in shapes if s["shape_type"] == "linestrip")
     check("折线也写进 json 了", n_line == out["n_polyline"], f"{n_line} 条")
-    check("多边形数 == 折线数", len(lab.roots) == out["n_polyline"],
+    # 一条折线可以出**多个**多边形（切片被切开时，用户 2026-10-08 选定的口径），
+    # 所以判据是"不少于折线数"，不是相等
+    check("多边形数 >= 折线数（一条折线可能出多个）",
+          len(lab.roots) >= out["n_polyline"],
           f"{len(lab.roots)} 个多边形 / {out['n_polyline']} 条折线")
     back = draw_polygons_at([[tuple(map(float, p)) for p in poly] for poly in lab.roots],
                             (w, h))
@@ -1906,11 +1917,14 @@ def run_selftest(args):
     test_lines = [[(120.0, 220.0), (480.0, 220.0)],      # 沿着那条根
                   [(120.0, 500.0), (500.0, 500.0)]]      # 底下什么都没有
     polys2, info2 = RootPolygonBuilder(m.shape).polygons(m, test_lines, 12)
-    check("两条折线 -> 两个多边形", len(polys2) == 2 and all(polys2),
-          f"{sum(1 for p in polys2 if p)} 个")
+    check("两条折线 -> 各得一组多边形（每组至少一个）",
+          len(polys2) == 2 and all(polys2),
+          f"{sum(len(g) for g in polys2)} 个多边形，分属 {sum(1 for g in polys2 if g)} 条折线")
     if all(polys2):
-        h0 = max(y for _, y in polys2[0]) - min(y for _, y in polys2[0])
-        h1 = max(y for _, y in polys2[1]) - min(y for _, y in polys2[1])
+        # 每条折线取**最大**的那个多边形量宽度（切片没切开时组里就一个）
+        g0 = max(polys2[0], key=len); g1 = max(polys2[1], key=len)
+        h0 = max(y for _, y in g0) - min(y for _, y in g0)
+        h1 = max(y for _, y in g1) - min(y for _, y in g1)
         check("掩码在的地方按掩码宽度（40px）", 32 <= h0 <= 48,
               f"多边形高 {h0:.0f}px（掩码 40 / 带宽 12）")
         check("掩码缺的地方按带宽补（12px）", 8 <= h1 <= 18,
@@ -1926,9 +1940,10 @@ def run_selftest(args):
     m3[280:320, 100:500] = 255            # 40px 宽的根
     m3[:, 296:300] = 0                    # 4px 窄缝：两侧掩码都在 ±6px 内
     line3 = [[(110.0, 300.0), (490.0, 300.0)]]
-    polys3, _ = RootPolygonBuilder(m3.shape).polygons(m3, line3, 12)
+    _g3, _ = RootPolygonBuilder(m3.shape).polygons(m3, line3, 12)
+    polys3 = [q for g in _g3 for q in g]          # 摊平（分组见 polygons 的说明）
     from common.gt_mask import draw_polygons_at as _dp
-    pm3 = _dp([[tuple(p) for p in q] for q in polys3 if q], (900, 600))
+    pm3 = _dp([[(float(x), float(y)) for x, y in q] for q in polys3], (900, 600))
     q3 = np.clip(np.round(np.linspace([110, 300], [490, 300], 200)).astype(int),
                  [0, 0], [899, 599])
     frac = pm3[q3[:, 1], q3[:, 0]].mean()
@@ -2216,7 +2231,7 @@ def run_selftest(args):
     # 多边形预览 + 带宽旋钮（这两样连着"存出来是什么形状"）
     win._recompute_polygons()
     check("画布上算出了多边形预览",
-          win.doc.polygons is not None and len(win.doc.polygons) == len(win.doc.polylines),
+          win.doc.polygons is not None and len(win.doc.polygons) >= len(win.doc.polylines),
           f"{len(win.doc.polygons or [])} 个 / {len(win.doc.polylines)} 条折线")
     w0 = win.doc.poly_width
     _saved_settings = (IO.SETTINGS_PATH.read_bytes()
@@ -2406,6 +2421,46 @@ def run_backfill_masks(args):
             continue
         store = core.MaskStore(c["pred"], c.get("add"), c.get("dele"))
         meta = c["meta"]
+        # ---- 保险：别用「不完整的缓存」覆盖已有的标注 ----
+        # 缓存**不是永远可信的**：如果这张图当初是在别的输出目录下标的，缓存里那份
+        # 未必有你的折线（比如只剩预跑时的纯预测）。拿它重生成 = 把标注清空。
+        # 2026-10-08 就是这么把 C019-3 那 4 张覆盖成空 json 的（同一天还发现它们的缓存
+        # 里 polylines 是空的）—— 万幸 root_model 里有副本才救回来。
+        # 判据：**目标 json 里有 root 形状，而缓存里一条折线都没有** → 跳过并告警。
+        jp = Path(args.datasets or IO.DATASETS_DIR) / f"{p.stem}.json"
+        if jp.exists():
+            try:
+                shapes = json.load(open(jp, encoding="utf-8")).get("shapes") or []
+            except Exception as e:
+                # **读不了就当它有内容**（宁可跳过、不可覆盖）。
+                # 原来写的是 `except Exception: n_old = 0` —— 那是"失败开放"：本文件当时
+                # 顶层漏了 `import json`，每次都抛 NameError 被这里吞掉，于是保险永远放行、
+                # 照样把标注覆盖成空 json（2026-10-08 实测踩到）。安全网的方向必须是
+                # "判断不了就别动它"，不是"判断不了就当空的"。
+                print(f"  [跳过] {p.stem}: 读不了 {jp.name}（{type(e).__name__}: {e}），"
+                      f"不敢覆盖它")
+                n_skip += 1
+                continue
+            # **逐类比，别比总数**：json 里的 root 多边形是从掩码算出来的，缓存里没有
+            # 对应项 —— 拿"json 形状总数"跟"缓存条数"比是苹果比橘子（第一版就这么错，
+            # 结果把 12 张好数据全拦了）。只比两边**一一对应**的那三种。
+            def _cnt(lab, types=None):
+                return sum(1 for s in shapes if s.get("label") == lab
+                           and (types is None or s.get("shape_type") in types))
+            old_line = _cnt("root", ("linestrip", "line"))
+            old_stem = _cnt("stem")
+            old_check = _cnt("check_background")
+            new_line = len(meta.get("polylines") or [])
+            new_stem = len(meta.get("stem_polys") or [])
+            new_check = 1 if meta.get("check_box") else 0
+            if old_line > new_line or old_stem > new_stem or old_check > new_check:
+                print(f"  [跳过] {p.stem}: {jp.name} 里有 折线{old_line}/茎{old_stem}/框{old_check}，"
+                      f"而缓存里只有 折线{new_line}/茎{new_stem}/框{new_check} ——"
+                      f" 缓存比标注旧，拿它重生成会丢东西。\n"
+                      f"         这张图的缓存大概是「预跑时的纯预测」。要重生成，请先用工具"
+                      f"打开这张图、确认折线在、按一次 Ctrl+S。")
+                n_skip += 1
+                continue
         # 走**保存那条正式路径**（而不是自己拼一遍）：json、掩码、overlay 三样一起重生成，
         # 口径永远和"在工具里按一次 Ctrl+S"一致。move_pictures=False —— 图早就在
         # datasets 里了，别再去动 pictures。

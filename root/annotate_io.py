@@ -373,8 +373,11 @@ class RootPolygonBuilder:
                  gap_min=None, close_r=None):
         """返回 (polygons, info)。
 
-        polygons: 长度与「有效折线」相同，逐条对应；某条折线什么都没得到时该位是 None。
-        info:     统计（空多边形数、被丢掉的掩码块数/面积），给界面提示用。
+        polygons: 长度与「有效折线」相同，逐条对应；**每条是一个列表** ——
+                  正常情况下只有一个多边形，但**切片被切成几块时会有多个**
+                  （用户 2026-10-08 选定的口径："允许一条折线出多个多边形"）。
+                  某条折线什么都没得到时该位是空列表 []。
+        info:     统计（空折线数、被丢掉的碎块数/面积、每条的多边形数），给界面提示用。
         """
         approx_px = ROOT_POLY_APPROX_PX if approx_px is None else approx_px
         min_area = ROOT_POLY_MIN_AREA if min_area is None else min_area
@@ -393,15 +396,16 @@ class RootPolygonBuilder:
         covered = np.zeros((self.h, self.w), bool)
         polys = []
         for i, line in enumerate(lines):
-            poly, raster, x0, y0, dropped = self._one(m, line, i + 1, width,
-                                                      approx_px, min_area,
-                                                      gap_min, close_r)
-            polys.append(poly)
-            if poly is None:
+            group, raster, x0, y0, dropped = self._one(m, line, i + 1, width,
+                                                       approx_px, min_area,
+                                                       gap_min, close_r)
+            polys.append(group)
+            if not group:
                 info["n_empty"] += 1
             info["n_dropped_blocks"] += dropped
             if raster is not None:
                 covered[y0:y0 + raster.shape[0], x0:x0 + raster.shape[1]] |= raster
+        info["per_line"] = [len(g) for g in polys]
         # 掩码里没有折线经过的块：数出来提醒用户（它们被丢掉了）
         orphan = m & ~covered
         if orphan.any():
@@ -463,26 +467,32 @@ class RootPolygonBuilder:
                 run = []
         raster = region | band
         if not raster.any():
-            return None, None, x0, y0, 0
-        # 闭合细缝（比 gap_min 还短的那些），再只留最大的连通块 ——
-        # 一条折线只能对应**一个**多边形（labelme 的一条 polygon 是一个闭环）
+            return [], None, x0, y0, 0
+        # 闭合细缝（比 close_r 还短的那些）
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * close_r + 1,) * 2)
         closed = cv2.morphologyEx(raster.astype(np.uint8), cv2.MORPH_CLOSE, k)
         n, cc, stats, _ = cv2.connectedComponentsWithStats(closed, 8)
         if n <= 1:
-            return None, None, x0, y0, 0
-        big = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-        kept = cc == big
+            return [], None, x0, y0, 0
+        # **保留所有面积够的连通块**（用户 2026-10-08 选定的口径）。
+        # 原来只留最大的那块，结果把真实的一块根丢了：实测某图一条折线丢了 7458 px，
+        # 而它离折线只有 12 px（折线是画了的，是多边形没盖住）—— 16 张 GT 合计少 4% 面积。
+        # 代价是"一条折线 = 一个多边形"不再是硬约束：切片被切开时会出多个多边形。
+        # 只丢真正的小碎片（< min_area，默认 100px² = 10×10px）。
+        keep = np.zeros_like(closed, dtype=bool)
         dropped = 0
         for i in range(1, n):
-            if i != big and stats[i, cv2.CC_STAT_AREA] >= min_area:
+            if stats[i, cv2.CC_STAT_AREA] >= min_area:
+                keep |= (cc == i)
+            else:
                 dropped += 1
-        local = mask_to_polygons((kept.astype(np.uint8) * 255), approx_px=approx_px,
+        if not keep.any():
+            return [], None, x0, y0, dropped
+        local = mask_to_polygons((keep.astype(np.uint8) * 255), approx_px=approx_px,
                                  min_area=min_area)
-        if not local:
-            return None, None, x0, y0, dropped
-        poly = [(float(qx) + x0, float(qy) + y0) for qx, qy in local[0]]
-        return poly, kept, x0, y0, dropped
+        group = [[(float(qx) + x0, float(qy) + y0) for qx, qy in poly]
+                 for poly in local]
+        return group, keep, x0, y0, dropped
 
 
 # ---------------------------------------------------------------- 导出
@@ -609,7 +619,8 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
     polys, poly_info = b.polygons(final_mask, polylines,
                                   ROOT_POLY_WIDTH_DEFAULT if poly_width is None
                                   else poly_width)
-    root_polys = [tuple(p) for p in polys if p]
+    # polys 是**逐折线分组**的（一条折线可能出多个多边形，见 polygons 的说明）→ 摊平
+    root_polys = [tuple(p) for group in polys for p in group]
     lines = [tuple(p) for p in polylines if len(p) >= 2]
     json_path = d / f"{stem}.json"
     tmp = json_path.with_suffix(".json.tmp")
