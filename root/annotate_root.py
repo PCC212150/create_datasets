@@ -6,6 +6,9 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
     python annotate_root.py --selftest      # 无界面自检（见文件末尾）
     python annotate_root.py --no-gpu        # 强制 CPU 预测（打包给别人用时的默认路径）
 
+把**别处标好的折线数据集**导进来改（拷贝 + 建缓存 + 灌折线，见 import_lines.py）：
+    python import_lines.py --from <源目录> [--dry-run]
+
 ## 怎么用（两个阶段，按 Enter 来回切）
 
 **阶段 1 · 修掩码**：红色 = 模型预测的根。不对的用蓝笔涂掉、漏的用绿笔补上。
@@ -15,6 +18,7 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
 起草完再拖控制点微调。`G` 会整条替换现有折线，所以**已经手工调过时会先问一句**
 （没调过就直接起草，连按两下不会弹两次）。紫色的轮廓就是"存出来会是什么形状"，带宽用 `,` `.` 或工具栏的数
 字框调。
+**画布左下角一直写着长度**（原图像素）：正在画的那条 > 选中的那条 > 全部折线的总长。
 
 ## 键位
 
@@ -35,6 +39,8 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
     Ctrl+S         保存并跳下一张        PgDn / PgUp  下一张 / 上一张
     F5             重新扫描目录（在资源管理器里删/加了图片之后用）
     工具栏「丢弃stem/丢弃check」  本图不写这两个标注（再点恢复）——故意没绑快捷键
+    工具栏「预测」开关           关掉就不跑模型：没缓存的图给空掩码从零标（折线照样搬）
+    工具栏最左「模型」下拉框     换模型立刻生效（人做的折线/涂改跟着走，见 readme「切换模型」）
     Ctrl+R         清空所有修改，回到纯预测（可撤销）      F1 键位帮助
 
 ## 产物
@@ -68,8 +74,8 @@ from PyQt5 import sip                                            # noqa: E402
 from PyQt5.QtCore import (QPoint, QRect, Qt, QThread, QTimer,     # noqa: E402
                           pyqtSignal)
 from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPen      # noqa: E402
-from PyQt5.QtWidgets import (QAction, QApplication, QCheckBox, QLabel,        # noqa: E402
-                             QListWidget, QListWidgetItem, QMainWindow,
+from PyQt5.QtWidgets import (QAction, QApplication, QCheckBox, QComboBox,     # noqa: E402
+                             QLabel, QListWidget, QListWidgetItem, QMainWindow,
                              QMessageBox, QSpinBox, QToolBar, QVBoxLayout, QWidget)
 
 # 不开 HighDpi：开了 dpr 会变成 1.5，帧缓冲尺寸/鼠标坐标/ROI 换算三处都要乘 dpr，
@@ -88,6 +94,16 @@ COLOR_POLY_PREVIEW = QColor(255, 0, 255)   # 多边形预览的轮廓（存出�
 COLOR_BOX = QColor(0, 255, 0)
 COLOR_HIT = QColor(255, 255, 255)
 HIT_RADIUS_PX = 8              # 控制点命中半径（屏幕像素）
+
+# 画布左下角的长度浮层：折线多长，画的时候就写在角上（2026-10-09 用户要的）。
+# 字是**屏幕像素**、位置钉在控件左下角 —— 缩放/平移都不动它。
+HUD_MARGIN = 10                # 离画布左下角多远
+HUD_PAD_X, HUD_PAD_Y = 10, 5   # 文字到浮层边框的留白
+HUD_FONT_PX = 16
+HUD_ROUND = 6
+COLOR_HUD_BG = QColor(0, 0, 0, 165)
+COLOR_HUD_TXT = QColor(255, 255, 255)
+COLOR_HUD_LIVE = QColor(255, 214, 80)   # 正在画的那条：和"已画完"的读数分个色
 
 
 class Doc:
@@ -115,6 +131,10 @@ class Doc:
         # G 会整条替换折线，所以只在"真有手工成果会丢"时才拦一下问一句 ——
         # 第一次起草、或者连着起草两次时不该弹窗打扰。
         self.polylines_edited = False
+        # 折线是**打开这张图时恢复进来的**（上次存的 / import_lines.py 从别处导的），
+        # 不是这次起草出来的。这类折线和手工改过的一样会被 G 整条替换掉，所以要拦。
+        # 它不跟着撤销栈走：撤销之后 polylines_edited 已经置位，拦的效果一样。
+        self.polylines_loaded = False
         self.dirty = False
         # ---- 「每条折线一个多边形」的预览 ----
         self.poly_width = IO.ROOT_POLY_WIDTH_DEFAULT   # 掩码缺处补带的宽度（界面上可调）
@@ -145,10 +165,17 @@ class PredictWorker(QThread):
     done = pyqtSignal(dict)
     failed = pyqtSignal(str)
 
-    def __init__(self, model, meta, device, tile, path):
+    def __init__(self, model, meta, device, tile, path, carry=None, phase=0):
         super().__init__()
         self.model, self.meta, self.device, self.tile, self.path = (
             model, meta, device, tile, path)
+        # 换模型时要搬到新模型上去的"人做的部分"（`_snapshot_human` 的结果，可能为 None）。
+        # **挂在 worker 上而不是窗口上**：它的生命周期就和"这一次预测、这一张图"绑死了，
+        # 唯一出口是这一次的 done 信号 —— 窗口成员会活过它该管的那次预测
+        # （切完模型立刻点下一张，涂改就贴到别的图上去了）。
+        self.carry = carry
+        # 装好之后停在哪个阶段（换模型时保留当时的阶段，见 `_install`）
+        self.phase = phase
 
     def run(self):
         try:
@@ -160,6 +187,18 @@ class PredictWorker(QThread):
             self.done.emit(res)
         except Exception as e:                       # 线程里抛异常会静默死掉，必须送回主线程
             self.failed.emit(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+class _NoWheelCombo(QComboBox):
+    """不吃滚轮的下拉框。
+
+    鼠标扫过工具栏时滚一格就会换模型 —— 这是**最容易发生、也最难察觉**的误触
+    （画面一变就重新预测了，人还以为是自己点错了）。`setFocusPolicy(Qt.NoFocus)`
+    挡不住这个：QComboBox 对滚轮的处理跟焦点无关。这里直接不处理，让它冒泡出去。
+    """
+
+    def wheelEvent(self, ev):
+        ev.ignore()
 
 
 class Canvas(QWidget):
@@ -301,6 +340,49 @@ class Canvas(QWidget):
             p.drawEllipse(self._mouse_screen, int(r), int(r))
             p.setPen(QPen(col, 2))
             p.drawEllipse(self._mouse_screen, int(r), int(r))
+        self._draw_hud(p)                        # 最后画：读数要压在所有东西上面
+
+    # ---------------- 左下角的长度浮层 ----------------
+    def hud_text(self):
+        """左下角浮层写什么（没东西可写就返回 None）。
+
+        三档，按"这会儿最该看哪个"排：正在画的那条 > 选中的那条 > 全部折线的总长。
+        **只在折线阶段显示** —— 掩码阶段屏幕上根本没有折线，报长度只会碍事。
+
+        长度和折线自己的记账用的是同一个 `core.polyline_length`（原图像素），
+        和状态栏、保存时的提示口径一致，不存在"屏上一个数、存下来另一个数"。
+        """
+        doc = self.doc
+        if doc is None or doc.store is None or self.phase != 1:
+            return None
+        if doc.cur_line:                         # 正在画（含只点了一个点：0 px 也是实情）
+            return f"正在画 {core.polyline_length(doc.cur_line):.0f} px"
+        i = self.sel_index()                     # 点中某条线上的控制点 = 想看这条多长
+        if i:
+            return f"#{i} {core.polyline_length(self._line_by_id(self._sel[0])):.0f} px"
+        if doc.polylines:
+            return (f"折线 {len(doc.polylines)} 条 · 总长 "
+                    f"{sum(core.polyline_length(l) for l in doc.polylines):.0f} px")
+        return None
+
+    def _draw_hud(self, p):
+        """把读数画在画布左下角（矢量画、每帧重画，和折线一样不落进帧缓冲）。"""
+        text = self.hud_text()
+        if not text:
+            return
+        f = QFont(self.font())
+        f.setPixelSize(HUD_FONT_PX)
+        p.setFont(f)
+        fm = p.fontMetrics()
+        th = fm.height()
+        rect = QRect(HUD_MARGIN, self.height() - HUD_MARGIN - th - 2 * HUD_PAD_Y,
+                     fm.horizontalAdvance(text) + 2 * HUD_PAD_X, th + 2 * HUD_PAD_Y)
+        p.setPen(Qt.NoPen)
+        p.setBrush(COLOR_HUD_BG)
+        p.drawRoundedRect(rect, HUD_ROUND, HUD_ROUND)
+        p.setPen(COLOR_HUD_LIVE if self.doc.cur_line else COLOR_HUD_TXT)
+        p.drawText(rect, Qt.AlignCenter, text)
+        p.setBrush(Qt.NoBrush)                   # 笔刷圈下次要用自己的颜色，别留个底色
 
     def _draw_line(self, p, line, color, active=False):
         vp = self.doc.vp
@@ -879,12 +961,15 @@ class Canvas(QWidget):
     def draft_needs_confirm(self):
         """起草前要不要问一句 = **真有手工成果会被替换掉**。
 
-        只有折线、但那是上一次起草的原样结果时，不问 —— 连按两下 `G` 不该弹两次窗。
+        只有折线、但那是**这次会话里上一次起草的原样结果**时，不问 —— 连按两下 `G`
+        不该弹两次窗。打开一张已经标好的图、把折线恢复出来（`polylines_loaded`）时**要问**：
+        那种折线是别处来的成果（上次存的、或者 `import_lines.py` 从别的数据集导进来的），
+        按 G 一样会被整条替换掉，看不出区别却丢得干净。
         单独抽成方法是为了能自检：offscreen 环境下弹 QMessageBox 会永久阻塞，
         所以"弹不弹"这个判断必须能脱离弹窗单独验。
         """
         doc = self.doc
-        return bool(doc is not None and doc.polylines_edited
+        return bool(doc is not None and (doc.polylines_edited or doc.polylines_loaded)
                     and (doc.polylines or doc.cur_line))
 
     def draft_polylines(self):
@@ -898,10 +983,16 @@ class Canvas(QWidget):
             return
         if self.draft_needs_confirm():
             n = len(doc.polylines)
+            # 两种"会丢"的情况原因不同，话也得说得不一样：一种是这张图上你的手工调整，
+            # 另一种是恢复进来的既有标注 —— 后者没有"你手工调整过"这回事，
+            # 说成那个样子会让人以为"我没改过啊"，然后点 Yes 把导入的折线丢了。
+            why = ("是**打开这张图时恢复的**（上次存的，或从别的数据集导进来的），"
+                   "不是这次起草出来的" if doc.polylines_loaded else
+                   "其中**你手工调整过**的内容会被全部替换掉"
+                   "（拖过的控制点、插过/删过/断开的点、手画的线都不在了）")
             r = QMessageBox.question(
                 self, "自动起草折线？",
-                f"当前有 {n} 条折线，其中**你手工调整过**的内容会被全部替换掉"
-                f"（拖过的控制点、插过/删过/断开的点、手画的线都不在了）。\n\n"
+                f"当前有 {n} 条折线，{why}，按 G 会整条替换掉。\n\n"
                 f"起草完立刻按 Ctrl+Z 可以整体撤回。要继续吗？",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if r != QMessageBox.Yes:
@@ -921,6 +1012,7 @@ class Canvas(QWidget):
         doc.polylines = paths
         doc.cur_line = []
         doc.polylines_edited = False   # 刚起草完 = 还没被人动过（_pl_snapshot 会置 True）
+        doc.polylines_loaded = False   # 现在这堆折线就是本次起草的结果，不再是"恢复来的"
         self._sel = self._hover = None
         self.win.set_dirty(True)
         self.win.set_phase(1)          # 起草出来的是折线，直接切到折线阶段接着改
@@ -963,7 +1055,19 @@ class MainWindow(QMainWindow):
         # 否则每换一张图就得重调一遍。存在 settings.json 里，下次启动还记得。
         self.poly_width = float(IO.load_settings().get("poly_width",
                                                        IO.ROOT_POLY_WIDTH_DEFAULT))
+        # 「预测」开关（工具级、记住）：关掉就不再跑模型，没缓存的图给一张空掩码从零标 ——
+        # 走一遍上百张图时不用每张都等它预测（实测 0.8s/张，遇上大尺度模型是十几秒）。
+        self.predict_on = bool(IO.load_settings().get("predict", True))
+        if args.selftest:
+            # 自检**不读用户的偏好**：跑自检的那台机器上 settings.json 里可能是关着的，
+            # 那样第 6/7/8 段的"打开图"会全走"不预测 → 空掩码"那条路，一堆检查跟着挂
+            # （2026-10-09 真踩过）。这个开关本身由第 9 段专门测。
+            self.predict_on = True
         self.width_box = None                        # 带宽旋钮（_make_toolbar 里创建）
+        self.model_box = None                        # 模型下拉框（同上）
+        self._switching = False                      # 换模型的重入闸（信号是程序化回滚会再触发）
+        self._startup_note = ""                      # 启动时模型的告警（__init__ 末尾 flash）
+        self._load_note = ""                         # 刚加载的模型值不值得提醒（见 _load_model）
         # 多边形预览的防抖定时器：拖折线时每一步都重算是跑不动的（一次 100~300ms），
         # 停手 150ms 之后再算 —— 体感上还是"跟着动"
         self._poly_timer = QTimer(self)
@@ -979,29 +1083,183 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, self._make_dock())
         self._make_toolbar()
 
-        self._load_model()
+        self._init_model()
         self._scan()
         self.resize(1560, 980)
+        if self._startup_note:
+            self.flash(self._startup_note)
 
     # ---------------- 模型 / 图片列表 ----------------
-    def _load_model(self):
+    def _init_model(self):
+        """启动时定用哪个模型：命令行 > settings.json 里记住的 > model\\ 下最新。
+
+        记住的那个可能已经被删了（文件夹挪走/换机器），那不该让工具起不来 ——
+        退回最新，攒一句话到 `_startup_note` 里最后 flash 给用户。
+        命令行点名的名字不存在则是**用户明确要求**，必须停下来报错（`_load_model`
+        只管返回原因，怎么处置由调用方决定）。
+        """
+        self._startup_note = ""
+        arg = self._initial_model_arg()
+        ok, err = self._load_model(arg)
+        if not ok and not self.args.model and arg is not None:
+            # 记住的那个没了（文件夹被删/挪走）不该让工具起不来：退回最新，最后 flash 一句
+            ok, err2 = self._load_model(None)
+            if ok:
+                self._startup_note = (f"上次用的 {arg} 加载失败，已退回 {self.model_name}"
+                                      f"（{err.splitlines()[0][:60]}）")
+            else:
+                err = err2
+        if not ok:
+            if not self.predict_on:
+                # 预测关着的话，模型加载失败**不该拦路**：只用缓存/从零标的图，用不着权重
+                self._startup_note = f"模型没加载（{err.splitlines()[0][:60]}）；预测已关，不影响标注"
+                self._fill_model_box()
+                return
+            QMessageBox.critical(self, "模型加载失败", err)   # 命令行点名的、或实在没有可用的
+            sys.exit(1)
+        self._startup_note = "；".join(x for x in (self._startup_note, self._load_note) if x)
+        self._fill_model_box()
+
+    def _initial_model_arg(self):
+        """启动时用哪个模型：**命令行 > settings.json 里记住的 > 最新那个**。
+
+        命令行点名了就一切以命令行为准（脚本/快捷方式跑的那次不该被上次在界面里
+        点的选择改掉）；没点名才用记住的。
+        """
+        return self.args.model or IO.load_settings().get("model") or None
+
+    def _load_model(self, model_arg=None):
+        """加载模型。成功返回 `(True, "")`，失败返回 `(False, 原因)`。
+
+        **失败时一个成员都不动**（所以"回滚"= 压根没改过）：解析和加载全部先落在局部变量上，
+        全成功了才往 `self.*` 上提交。`resolve_pths` / `load_models` 抛的是 `SystemExit`
+        （BaseException 的子类，`except Exception` 接不住），必须显式列 —— run.bat 是 pythonw
+        启动，漏出去就是整个窗口无声消失。
+        """
         if self.args.selftest:
-            return
+            self._load_note = ""
+            return True, ""
         import torch
-        pths, names = IO.resolve_model(self.args.model)
-        use_cuda = torch.cuda.is_available() and not self.args.no_gpu
-        self.device = torch.device("cuda" if use_cuda else "cpu")
         t0 = time.time()
-        self.model, metas = IO.ckpt.load_models(pths, self.device)
-        self.meta = metas[0]
+        try:
+            pths, names = IO.resolve_model(self.args.model if model_arg is None
+                                           else model_arg)
+            use_cuda = torch.cuda.is_available() and not self.args.no_gpu
+            device = torch.device("cuda" if use_cuda else "cpu")
+            model, metas = IO.ckpt.load_models(pths, device)
+            meta = metas[0]
+            tile = IO.ckpt.infer_tile(metas, self.args.size)
+            if self.args.size and tile == 0:
+                meta = dict(meta, size=self.args.size)
+        except (SystemExit, Exception) as e:
+            return False, (str(e) or type(e).__name__)
+        # 到这儿才提交；cache_dir 也放在后面（它带 mkdir，失败时不该留下空目录）
+        self.model, self.meta, self.device, self.tile = model, meta, device, tile
         self.model_name = names[0]
-        self.tile = IO.ckpt.infer_tile(metas, self.args.size)
-        if self.args.size and self.tile == 0:
-            self.meta = dict(self.meta, size=self.args.size)
         self.cache_dir = IO.cache_dir(self.model_name)
+        size = self.tile or self.meta.get("size") or 0
         print(f"模型 {self.model_name} | 设备 {self.device} | 输入长边 "
-              f"{self.tile or self.meta.get('size')} | 加载 {time.time() - t0:.1f}s")
+              f"{size} | 加载 {time.time() - t0:.1f}s")
+        # 训练尺度比别人大一大截的模型，推理代价是**平方级**的：实测长边 2736 那个在
+        # 8GB 显存的笔记本上要 16.3GB 显存、溢出到系统内存（进程 1.5GB -> 9.7GB），
+        # 一张图 12.5 秒（1024 的那两个是 0.8~1.0 秒）。不提醒的话，用户只会觉得
+        # "工具卡死了"（2026-10-09 就是这么踩的）。
+        self._load_note = self._size_warning(self.model_name, size)
         self._warmup()
+        return True, ""
+
+    @staticmethod
+    def _size_warning(model_name, size):
+        """输入长边特别大的模型要不要提醒一句（要就返回文案，不要返回空串）。
+
+        推理代价随尺度是**平方级**的：实测长边 2736 那个模型在 8GB 显存的笔记本上
+        要 16.3GB 显存、溢出到系统内存（进程 1.5GB -> 9.7GB），一张图 12.5 秒；
+        1024 的那两个是 0.8~1.0 秒、1.5GB。不提醒的话，用户只会觉得"工具卡死了"。
+        """
+        if not size or size < 2048:
+            return ""
+        return (f"⚠ {model_name} 的输入长边是 {size}（另外两个模型是 1024）："
+                f"显存多半装不下，会溢出到系统内存、每张要十几秒。"
+                f"比完就换回 1024 的那个，不然一直占着十几个 G")
+
+    # ---------------- 换模型 ----------------
+    @staticmethod
+    def _model_candidates(root=None):
+        """`model\\` 下**可以点**的模型：按文件夹名排序，只要真有 .pth 的。
+
+        和 `ckpt.resolve_model_dir` 用同一套 glob（不然会列出命令行根本选不中的目录）；
+        只列有 .pth 的是因为列一个点了必然失败的条目纯属添乱。
+        """
+        root = Path(root or IO.MODEL_ROOT)
+        return sorted(p.name for p in root.glob("model_*")
+                      if p.is_dir() and any(p.glob("*.pth")))
+
+    def _fill_model_box(self):
+        """把下拉框刷成"可选的 + 当前在用的"，并选中当前那个。"""
+        if self.model_box is None:
+            return
+        names = self._model_candidates()
+        cur = self.model_name
+        self.model_box.blockSignals(True)
+        self.model_box.clear()
+        for n in names:
+            self.model_box.addItem(n, n)
+        if cur and cur not in names:
+            # `--model` 给的是路径、文件夹被删了、或者自检的假模型：界面必须显示
+            # **真在用的那个**，而不是列表里随便别的名字
+            self.model_box.addItem(f"{cur}（不在 model\\ 下）", cur)
+        i = self.model_box.findData(cur)
+        if i >= 0:
+            self.model_box.setCurrentIndex(i)
+        self.model_box.blockSignals(False)
+
+    def _remember_model(self, name):
+        """记住这次选的（下次启动默认用它）。合并写，别把带宽那个键抹掉。"""
+        IO.save_settings({"model": name})
+
+    def _on_model_picked(self, _index):
+        name = self.model_box.currentData()
+        if name and name != self.model_name:
+            self.switch_model(name)
+
+    def switch_model(self, name):
+        """换模型：重载权重 -> 换缓存目录 -> 重开当前这张图（人做的部分搬过去）。
+
+        失败时**什么都不动**（`_load_model` 是先算完再提交的），下拉框弹回当前模型。
+        """
+        if self.args.selftest or not name or name == self.model_name:
+            return False
+        if self._switching:                          # 回滚会再触发一次信号，别递归
+            return False
+        self._switching = True
+        try:
+            # 脏数据先用**旧模型**处理掉（这里点"保存"写进的是旧模型的缓存）
+            if not self._confirm_leave():
+                self._fill_model_box()
+                return False
+            carry = self._snapshot_human(self.doc)
+            self._drop_worker()
+            self.status.setText(f"正在加载模型 {name} …")
+            QApplication.processEvents()             # 否则加载那 1~2 秒窗口像卡死
+            ok, err = self._load_model(name)
+            if not ok:
+                QMessageBox.critical(self, "换模型失败",
+                                     f"{name}\n\n{err}\n\n还是继续用 {self.model_name}。")
+                self._fill_model_box()
+                self.update_status()
+                return False
+            self._remember_model(self.model_name)    # 只记**真加载成功**的那个
+            self._fill_model_box()
+            if self._load_note:
+                # 说得越早越好：等它 12 秒出第一张图的时候，用户已经在怀疑工具死了。
+                # flash 写的是右边那格，`_start_predict` 只改左边那格，盖不掉。
+                self.flash(self._load_note)
+            if 0 <= self.idx < len(self.images):
+                # keep_phase：换完模型继续停在原来的阶段，不然"折线看不见了"
+                self.open_image(self.idx, force=True, carry=carry, keep_phase=True)
+            return True
+        finally:
+            self._switching = False
 
     def _warmup(self):
         """先跑一次极小的假前向：CUDA 的初始化/算法选择要 ~1s，
@@ -1075,8 +1333,11 @@ class MainWindow(QMainWindow):
         """F5：重新扫两个目录，把列表刷新成磁盘上的真实情况。
 
         在资源管理器里删了/加了图片之后用它 —— 不用重启工具。
+        新拷进 `model\\` 的模型也从这儿刷新（下拉框跟着重建）。
         """
+        self._drop_worker()        # 列表要重建，在跑的预测装的还是旧的 images[idx]，先停掉
         cur = self.doc.stem if self.doc is not None else None
+        self._fill_model_box()
         self.images = IO.list_images(self.args.pictures, self.args.datasets)
         self.done = IO.done_stems(self.args.datasets)
         self.listw.clear()
@@ -1093,7 +1354,14 @@ class MainWindow(QMainWindow):
         self.flash(f"已重新扫描：共 {len(self.images)} 张 · 已完成 {len(self.done)} · "
                    f"还剩 {len(self.images) - len(self.done)}")
 
-    def open_image(self, idx, force=False):
+    def open_image(self, idx, force=False, carry=None, keep_phase=False):
+        """打开第 idx 张。
+
+        `carry` 只在换模型时用（见 `_snapshot_human`）：这个模型**没有**这张图的缓存时，
+        把旧模型上"人做的部分"带过去。
+        `keep_phase=True`（同样只在换模型时）表示"同一张图重装，别把我踢回掩码阶段" ——
+        折线只在折线阶段画出来，一律切回掩码阶段的话，用户会以为折线没了（2026-10-09 踩过）。
+        """
         if not force and not self._confirm_leave():
             return
         path = self._resolve_path(idx)
@@ -1106,50 +1374,120 @@ class MainWindow(QMainWindow):
         self.idx = idx
         self.listw.setCurrentRow(idx)
         self.setWindowTitle(f"根系标注工具 — {path.name}  ({idx + 1}/{len(self.images)})")
+        # 同一张图（换模型/重扫）才保留阶段；换另一张图回到掩码阶段，那才是干活的起点
+        ph = self.canvas.phase if (keep_phase and self.doc is not None
+                                   and self.doc.stem == path.stem) else 0
+        # 换模型时传进来的那份（**内存里最新**）优先；否则去别的模型的缓存里找。
+        # 折线是人标的、跟着图走，不该因为换了模型就"看不见"（2026-10-09 用户报的）。
+        carry = carry or self._human_from_other_models(path.stem)
         cached = None
         if not self.args.no_cache:
             cached = IO.load_cache(self.cache_dir, path.stem, self.model_name)
         if cached is not None:
+            # 这个模型自己就有这张图的缓存 —— 一般用它那份（那才是它的真实会话），
+            # 但**纯预测**（`--prefetch` 建的那种，没折线没涂改）不算"会话"：
+            # 那里面没有人的东西，把搬运包并进去才是用户要的
+            dirty = False
+            note = ""
+            if carry and not self._cached_has_human(cached):
+                cached = self._apply_carry(cached, carry, path.stem)
+                dirty = True
+                note = f" · 折线/涂改从 {carry.get('from') or '上一个模型'} 搬来"
             t0 = time.time()
             img = self._load_or_report(path)
             if img is None:                 # 读不了：已经弹过提示了，别往下走
                 return
-            self._install(path, img, cached, f"缓存 {time.time() - t0:.2f}s")
+            self._install(path, img, cached, f"缓存 {time.time() - t0:.2f}s{note}",
+                          phase=ph, dirty=dirty)
+        elif not self.predict_on:
+            # 「预测」关着：不跑模型，给一张**空掩码**从零标。
+            # 折线/涂改照样搬（人做的东西跟模型无关），只是没有红层可改。
+            img = self._load_or_report(path)
+            if img is None:
+                return
+            blank = {"pred": np.zeros(img.shape[:2], np.uint8), "prob": None,
+                     "check_box": None, "check_ok": False, "root_ok": True,
+                     "stem_polys": [], "low_thresh": IO.DEFAULT_LOW_THRESH}
+            blank = self._apply_carry(blank, carry, path.stem)
+            self._install(path, img, blank,
+                          "不预测（没有缓存，掩码是空的）"
+                          + (f" · 折线/涂改从 {carry.get('from') or '别的模型'} 搬来"
+                             if carry else ""),
+                          phase=ph, dirty=bool(carry))
         else:
-            self._start_predict(idx)
+            self._start_predict(idx, carry=carry, phase=ph)
 
-    def _start_predict(self, idx):
-        if self.args.selftest:
-            self._install_selftest(idx)
+    def _drop_worker(self):
+        """让在跑的预测彻底退场：先撤销它的"资格"，再等它停。
+
+        **顺序不能反**：`pending_idx` 先清掉，那个 worker 排队中的 done 信号立刻失去资格；
+        只 `wait()` 是拦不住它的 —— 信号是队列连接，事件还躺在事件队列里，
+        等主线程忙完（比如刚换完模型）才投递，于是"旧模型的预测"会顶着新模型的名字装进去，
+        按一次 Ctrl+S 就写进新模型的缓存目录。
+        顺带松开它对旧模型的引用：换模型时旧网络还在它手里吊着，显存里会同时躺两个。
+        """
+        w, self.worker = self.worker, None
+        self.pending_idx = None
+        if w is None:
             return
-        # 同时只允许一个预测在跑：两个并发前向会抢显存，而且结果互相覆盖
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.wait(10000)
+        for sig in (w.done, w.failed):
+            try:
+                sig.disconnect()        # 彻底断掉，身份守卫是第二道防线，不是第一道
+            except TypeError:
+                pass
+        if w.isRunning():
+            w.wait(10000)
+        w.model = w.meta = None
+
+    def _start_predict(self, idx, carry=None, phase=0):
+        if self.args.selftest:
+            self._install_selftest(idx, carry=carry, phase=phase)
+            return
+        self._drop_worker()             # 同时只允许一个预测在跑：并发前向会抢显存、结果互相覆盖
         self.pending_idx = idx
-        self.canvas.doc = None
+        self.doc = None
         self.canvas.refresh(full=True)
         self.status.setText(f"正在预测 {self.images[idx].name} …")
         self.worker = PredictWorker(self.model, self.meta, self.device, self.tile,
-                                    self.images[idx])
+                                    self.images[idx], carry=carry, phase=phase)
         self.worker.idx = idx
-        self.worker.done.connect(self._on_predicted)
-        self.worker.failed.connect(self._on_predict_failed)
+        # 把 worker 自己捕获进闭包：槽里据此判断"这份结果是**这一个** worker 送来的吗"。
+        # 只比 idx 不够 —— 换模型重开同一张图时 pending_idx 还是同一个整数。
+        self.worker.done.connect(lambda res, w=self.worker: self._on_predicted(w, res))
+        self.worker.failed.connect(lambda msg, w=self.worker: self._on_predict_failed(w, msg))
         self.worker.start()
 
-    def _on_predict_failed(self, msg):
+    def _on_predict_failed(self, worker, msg):
+        if worker is not self.worker:
+            return                      # 上一轮/上一个模型的失败，别弹给现在的用户看
+        self.pending_idx = None
         self.status.setText("预测失败")
         QMessageBox.critical(self, "预测失败", msg)
 
-    def _on_predicted(self, res):
-        idx = getattr(self.worker, "idx", None)
+    def _on_predicted(self, worker, res):
+        if worker is not self.worker:
+            return                      # 旧 worker 迟到的结果，作废（见 _drop_worker）
+        idx = getattr(worker, "idx", None)
         if idx is None or idx != self.pending_idx:
             return                      # 用户在预测期间换了图，这份结果作废
         self.pending_idx = None
-        self._install(self.images[idx], res["img"], res,
-                      f"预测 {res.get('seconds', 0):.2f}s（{self.device}）")
+        res = self._apply_carry(res, worker.carry, Path(worker.path).stem)
+        note = f"预测 {res.get('seconds', 0):.2f}s（{self.device}）"
+        if worker.carry:
+            # 这句得在这里说：换模型时那句 flash 早被"正在预测…"盖掉了
+            note += (f" · 折线/涂改从 {worker.carry.get('from') or '上一个模型'} 搬来"
+                     f"（撤销栈重新开始）")
+        self._install(self.images[idx], res["img"], res, note,
+                      dirty=bool(worker.carry), phase=worker.phase)
 
-    def _install(self, path, img, pred, note=""):
-        """把（缓存或预测）结果装成当前的 Doc 并显示。"""
+    def _install(self, path, img, pred, note="", dirty=False, phase=0):
+        """把（缓存或预测）结果装成当前的 Doc 并显示。
+
+        `dirty=True` 用在"换模型时把折线/涂改搬过来"之后：搬过来的东西**不在新模型的缓存里**，
+        不标脏的话，用户什么都不改就切下一张，那些涂改会被静默丢掉（下次打开只剩新模型的纯预测）。
+        `phase` 是**装好之后停在哪个阶段**：换模型时由 `open_image(keep_phase=True)` 把当时的
+        阶段带过来，否则一律回到"修掩码"。
+        """
         doc = Doc(path, img, self.model_name, self.cache_dir)
         doc.store = core.MaskStore(pred["pred"],
                                    pred.get("add"), pred.get("dele"))
@@ -1163,6 +1501,8 @@ class MainWindow(QMainWindow):
         doc.drop_stem = bool(meta.get("drop_stem", False))
         doc.drop_check = bool(meta.get("drop_check", False))
         doc.polylines = [list(map(tuple, l)) for l in meta.get("polylines", [])]
+        # 恢复进来的折线不是"这次起草的原样结果"——它是别处来的成果，G 覆盖前必须问一句
+        doc.polylines_loaded = bool(doc.polylines)
         # 带宽用**工具级**那个值，不读缓存里那张图自己的 —— 用户要的是"调一次、
         # 之后每张图都按它来"。缓存里那份只是当时存盘时的记录。
         doc.poly_width = self.poly_width
@@ -1172,13 +1512,13 @@ class MainWindow(QMainWindow):
             self.width_box.blockSignals(False)
         doc.ensure_builder()
         doc.vp.fit(self.canvas.width() or 1200, self.canvas.height() or 800)
-        doc.dirty = False
+        doc.dirty = bool(dirty)
         self.doc = doc
         self.canvas._dirty = []
         self.canvas._needs_full = True
         self.canvas._auto_fit = True
         self.canvas._pl_undo, self.canvas._pl_redo = [], []
-        self.canvas.phase = 0
+        self.canvas.phase = int(phase)
         self.canvas._sel = self.canvas._hover = None
         self.canvas.setFocus()
         self.canvas.refresh(full=True)
@@ -1187,7 +1527,96 @@ class MainWindow(QMainWindow):
         if note:
             self.flash(f"{path.name}  {note}")
 
-    def _install_selftest(self, idx):
+    # ---------------- 换模型：把"人做的部分"搬到新模型上 ----------------
+    def _snapshot_human(self, doc):
+        """把 doc 里**人做的**部分摘出来 —— 换模型时唯一要跟着走的东西。
+
+        模型做的（红层、概率图、茎、检查框、阈值）一律不搬：新模型重新给，
+        这样"当前红层"和 meta 里的阈值/检查框才自洽。
+        一样都没有时返回 None —— 纯预测的图换个模型看看，不该被标成"未保存*"。
+        """
+        if doc is None or doc.store is None:
+            return None
+        # 必须 copy：旧 doc 马上就要被丢掉，而且 MaskStore 的数组是**原地涂改**的
+        add, dele = doc.store.add.copy(), doc.store.dele.copy()
+        lines = [list(map(tuple, l)) for l in doc.polylines]     # 深拷，别和旧 doc 共享列表
+        if not (add.any() or dele.any() or lines or doc.drop_stem or doc.drop_check):
+            return None
+        return {"stem": doc.stem, "from": doc.model_name,
+                "add": add, "dele": dele, "polylines": lines,
+                "drop_stem": doc.drop_stem, "drop_check": doc.drop_check}
+
+    @staticmethod
+    def _cached_has_human(cached):
+        """这份缓存里有没有**人做的**东西（折线 / 绿蓝涂改 / 丢弃标志）。
+
+        `--prefetch` 建出来的缓存是**纯预测**：掩码只有红层、折线是空的。它虽然"存在"，
+        但对"我上次标的折线呢"这个问题等于没有 —— 判断标准必须是这个，不是"缓存文件在不在"。
+        """
+        meta = cached.get("meta") or {}
+        if meta.get("polylines") or meta.get("drop_stem") or meta.get("drop_check"):
+            return True
+        for k in ("add", "dele"):
+            arr = cached.get(k)
+            if arr is not None and bool(arr.any()):
+                return True
+        return False
+
+    def _human_from_other_models(self, stem):
+        """去**别的模型**的缓存里，把这张图"人做的部分"找回来（找不到返回 None）。
+
+        折线是人标的，跟用哪个模型无关；可缓存是按模型名分目录存的，于是换个模型
+        同一张图就"没折线"了（2026-10-09 用户报的）。取**改得最近**的那份 ——
+        那最可能是你最后在用的那个模型。纯预测的缓存不算数（见 `_cached_has_human`）。
+        """
+        best = None
+        for d in sorted(IO.CACHE_ROOT.glob("*")):
+            if not d.is_dir() or d.name in (self.model_name, "selftest"):
+                continue
+            cp = IO.cache_paths(d, stem)
+            if not cp["meta"].exists():
+                continue
+            try:
+                # 模型名传 None：**故意关掉** load_cache 那道"meta 里的模型名要和目录一致"
+                # 的校验 —— 这里就是要翻别人的目录，校验只会把要的东西挡在外面
+                cached = IO.load_cache(d, stem, None)
+            except Exception:
+                continue
+            if cached is None or not self._cached_has_human(cached):
+                continue
+            mt = cp["meta"].stat().st_mtime
+            if best is None or mt > best[0]:
+                best = (mt, d.name, cached)
+        if best is None:
+            return None
+        _mt, name, cached = best
+        meta = cached.get("meta") or {}
+        return {"stem": stem, "from": name,
+                "add": cached["add"], "dele": cached["dele"],
+                "polylines": [list(map(tuple, l)) for l in (meta.get("polylines") or [])],
+                "drop_stem": bool(meta.get("drop_stem")),
+                "drop_check": bool(meta.get("drop_check"))}
+
+    def _apply_carry(self, res, carry, stem):
+        """把搬运包并进这一次的预测结果（`_install` 之前调）。
+
+        折线/丢弃标志走 `meta`，涂改走 `add/dele` 两个键 —— `_install` 本来就从这两处读，
+        所以这里不用动 `_install`。两道校验防串台：同一张图、掩码尺寸对得上；
+        对不上就原样返回，宁可这次不搬，也不把别的图的涂改贴到这来。
+        """
+        if not carry or carry.get("stem") != stem:
+            return res
+        if carry["add"].shape != res["pred"].shape:
+            return res
+        out = dict(res)
+        out["add"], out["dele"] = carry["add"], carry["dele"]
+        out["meta"] = {**(res.get("meta") or {}),
+                       "polylines": carry["polylines"],
+                       "drop_stem": carry["drop_stem"],
+                       "drop_check": carry["drop_check"]}
+        return out
+
+    def _install_selftest(self, idx, carry=None, phase=0):
         """--selftest 用：不加载模型，造一张确定性的假预测。"""
         path = self.images[idx]
         img = self._load_or_report(path)
@@ -1200,10 +1629,13 @@ class MainWindow(QMainWindow):
             pred[y:y + 24, int(w * 0.2):int(w * 0.75)] = 255
         # prob=None：自检没有真概率图，调松紧的按键会明确说"这张图没有缓存的概率图"，
         # 而不是拿一张假的 64x64 概率图去插值成 5472x3648 把红层清空
-        self._install(path, img, {"pred": pred, "prob": None,
-                                  "check_box": (100, 100, w - 100, h - 100),
-                                  "check_ok": True, "stem_polys": [],
-                                  "low_thresh": IO.DEFAULT_LOW_THRESH}, "自检假预测")
+        res = {"pred": pred, "prob": None,
+               "check_box": (100, 100, w - 100, h - 100),
+               "check_ok": True, "stem_polys": [],
+               "low_thresh": IO.DEFAULT_LOW_THRESH}
+        # 和真预测那条路一样把搬运包并进来（自检要能验"打开一张图时去别的模型里捞折线"）
+        res = self._apply_carry(res, carry, path.stem)
+        self._install(path, img, res, "自检假预测", dirty=bool(carry), phase=phase)
 
     # ---------------- 保存 ----------------
     def save(self, go_next=True):
@@ -1230,7 +1662,10 @@ class MainWindow(QMainWindow):
                 src_image=doc.path, datasets_dir=self.args.datasets,
                 poly_width=doc.poly_width, builder=doc.poly_builder,
                 move_pictures=not self.args.keep_pictures)
-            meta = IO.meta_for_save(self.model_name, doc.img.shape, doc.stem,
+            # 名字跟着 **doc** 走，不跟 self 走：两者分别写进 meta 和缓存目录
+            # （doc.cache_dir），取两个来源的话，换模型之后一个不慎就是
+            # "新名字 + 旧目录"，也就是跨模型污染
+            meta = IO.meta_for_save(doc.model_name, doc.img.shape, doc.stem,
                                     doc.image_name, doc.low_thresh, doc.check_box,
                                     doc.check_ok, doc.stem_polys, doc.drop_stem,
                                     doc.drop_check, doc.polylines, prob=doc.prob,
@@ -1313,6 +1748,47 @@ class MainWindow(QMainWindow):
             self._recompute_polygons()
         self.flash(f"折线带宽 {w:.0f}px（已记住，后面每张图都用它）"
                    f"｜只影响掩码缺的地方，掩码有根的地方用掩码自己的宽度")
+
+    def set_predict(self, on):
+        """「预测」开关（工具栏上那个，工具级、记得住）。
+
+        关掉之后 `open_image` 不再跑模型：没有缓存的图直接给一张空掩码，从零标。
+        **当前这张图的红层也一起清掉** —— 红层是模型的输出，留着它会跟着 `(红∪绿)\\蓝`
+        混进导出的多边形里，等于你手标的区域里掺了一块机器的。清掉可撤销（Ctrl+Z 回来），
+        概率图留着（「预测松紧」还能把红层按出来）。
+        折线/涂改**照样**从别的模型的缓存里搬过来 —— 它们是人做的，跟跑不跑模型无关。
+        """
+        self.predict_on = bool(on)
+        IO.save_settings({"predict": self.predict_on})
+        note = ""
+        if not self.predict_on:
+            # 正在跑的那次预测作废：用户关它多半就是嫌这次跑太久，别再等它
+            self._drop_worker()
+            doc = self.doc
+            if doc is not None and doc.store is not None and bool(doc.store.pred.any()):
+                doc.store.replace_pred(np.zeros_like(doc.store.pred))   # 记一次可撤销
+                doc.builder.invalidate()               # 红层是合成进帧缓冲的，得重画
+                self.set_dirty(True)                   # 多边形跟着变 + 状态栏"未保存*"
+                note = "；这张图的红层也清掉了（Ctrl+Z 可恢复）"
+            if doc is None:
+                self.status.setText("")    # 擦掉"正在预测 xxx…"那句（update_status 这时会早退）
+            self.canvas.refresh(full=True)
+        else:
+            # 点"预测"就是想看红层：**当场把当前这张重算一遍**，别让用户再翻页回来一趟
+            # （2026-10-09 用户问"为啥再点预测不生成红色掩码"）。折线/涂改照旧跟着走，
+            # 停在哪个阶段也不动。
+            doc = self.doc
+            if (doc is not None and 0 <= self.idx < len(self.images)
+                    and (self.model is not None or self.args.selftest)):
+                carry = self._snapshot_human(doc)
+                self._start_predict(self.idx, carry=carry, phase=self.canvas.phase)
+                note = "，正在重算这张…"
+            elif doc is not None:
+                note = "（模型没加载，这张算不了；换个能用的模型再试）"
+        self.update_status()
+        self.flash("预测已关：不再跑模型，没缓存的图给空掩码（折线/涂改照样搬）" + note
+                   if not self.predict_on else
+                   "预测已开：新打开的图会先跑一版红层" + note)
 
     def set_dirty(self, v=True):
         """标记"有未保存改动"。**顺便触发多边形重算** —— 掩码或折线一变，
@@ -1465,8 +1941,30 @@ class MainWindow(QMainWindow):
 
     def _make_toolbar(self):
         tb = QToolBar()
+        built = []                              # (按钮文字, QAction)：插"预测"开关时要用
         tb.setFocusPolicy(Qt.NoFocus)
         self.addToolBar(tb)
+        # 模型下拉框放在**最前面**：默认 1560 宽的窗口里工具栏排不下，末尾的控件会被
+        # 挤进 ">>" 溢出菜单 —— 藏在二级菜单里的选择器等于没有。放最前既永远看得见，
+        # 也不用去动别人已经用熟的按钮顺序。
+        # （试过放左边栏，但 offscreen 平台下 QComboBox 放进 QDockWidget 会在
+        #   processEvents 里 C++ 层崩 0xC0000409，自检直接跑不了。）
+        tb.addWidget(QLabel(" 模型 "))
+        self.model_box = _NoWheelCombo()
+        self.model_box.setFocusPolicy(Qt.NoFocus)      # 键盘留给画布（同 width_box/listw）
+        self.model_box.setMinimumWidth(150)
+        self.model_box.setMaximumWidth(260)            # 名字长了由它自己省略号截断
+        self.model_box.setToolTip(
+            "当前用的模型（改一下立刻生效，不用重启）\n"
+            "\n"
+            "换过去时：**人做的部分**（折线、绿/蓝涂改、丢弃标志）原样跟着走；\n"
+            "**模型给的部分**（红层、概率图、茎、检查框、松紧阈值）换成新模型的。\n"
+            "缓存按模型名分目录：同一张图在每个模型下各有一份，切回去还在。\n"
+            "新模型已经有这张图的缓存时，直接用它的那份（不搬）。")
+
+        self.model_box.currentIndexChanged.connect(self._on_model_picked)
+        tb.addWidget(self.model_box)
+        tb.addSeparator()
         for text, tip, fn in (
                 ("保存并下一张", "Ctrl+S", lambda: self.save(True)),
                 ("◀ 上一张", "PgUp", lambda: self.goto(-1)),
@@ -1504,6 +2002,27 @@ class MainWindow(QMainWindow):
             a.triggered.connect(fn)
             tb.addAction(a)
             a.setShortcut("")               # 快捷键统一在 keyPressEvent 里处理，免得两套
+            built.append((text, a))
+        # 预测开关：插在阶段按钮后面，**不是**加在末尾 —— 工具栏在默认窗口宽度下排不下，
+        # 末尾的控件会掉进 ">>" 溢出菜单，而它是"这张图为什么没有红层"的答案，得看得见。
+        self.predict_action = QAction("预测", self)
+        self.predict_action.setCheckable(True)
+        self.predict_action.setChecked(self.predict_on)
+        self.predict_action.setToolTip(
+            "关掉就不再跑模型：没有缓存的图直接给一张**空掩码**，你从零标\n"
+            "**当前这张的红层也会一起清掉**（Ctrl+Z 可恢复）—— 红层是模型的输出，留着\n"
+            "会混进导出的多边形里；概率图留着，「预测松紧」还能把它按出来\n"
+            "（折线/涂改照旧从别的模型的缓存里搬过来）\n"
+            "开着 = 模型在没缓存的图上先预测一版红层给你改；**刚打开时会立刻把\n"
+            "当前这张重算一遍**（折线/涂改跟着走）\n"
+            "没有快捷键（和「丢弃stem/check」一样，故意不绑，免得误按）")
+        self.predict_action.toggled.connect(self.set_predict)
+        self.predict_action.setShortcut("")
+        anchor = dict(built).get("自动起草折线")
+        if anchor is not None:
+            tb.insertAction(anchor, self.predict_action)
+        else:
+            tb.addAction(self.predict_action)
         tb.addSeparator()
         tb.addWidget(QLabel(" 折线带宽 "))
         self.width_box = QSpinBox()
@@ -1521,6 +2040,7 @@ class MainWindow(QMainWindow):
         self.width_box.setFocusPolicy(Qt.NoFocus)
         tb.addWidget(self.width_box)
         tb.addSeparator()
+        # （模型下拉框在左边栏 `_make_dock` 里 —— 工具栏末尾会被挤进溢出菜单）
         a = QAction("键位帮助", self)
         a.setToolTip("F1")
         a.triggered.connect(self.help_box)
@@ -1572,6 +2092,7 @@ class MainWindow(QMainWindow):
              ) if doc.polygons is not None else "",
             "不要stem" if doc.drop_stem else "",
             "不要check" if doc.drop_check else "",
+            "不预测" if not self.predict_on else "",
             "未保存*" if doc.dirty else "",
         ]
         self.status.setText(" | ".join(x for x in parts if x))
@@ -1644,8 +2165,7 @@ class MainWindow(QMainWindow):
             ev.ignore()
             return
         # 线程还在跑就关窗 = "QThread: Destroyed while thread is still running" 崩溃
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.wait(8000)
+        self._drop_worker()
         ev.accept()
 
 
@@ -2115,9 +2635,75 @@ def run_selftest(args):
     c.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_X, Qt.NoModifier))
     check("没选中时按 X 不误删", len(c.doc.polylines) == n_lines)
 
+    # ---- 左下角的长度浮层（2026-10-09 用户要的：画折线时看得见这条多长）----
+    c.fit()
+    total = sum(core.polyline_length(l) for l in c.doc.polylines)
+    t = c.hud_text()
+    check("没在画、没选中：浮层报全部折线的总长",
+          bool(t) and "总长" in t and f"{total:.0f}" in t, t)
+
+    def _free_pt(step=37):
+        """找一个**没有控制点**的屏幕位置。鼠标事件会先被"选中控制点"吃掉，
+        随手挑个坐标有可能正好撞在起草出来的线上。"""
+        for sy in range(70, c.height() - 70, step):
+            for sx in range(70, c.width() - 70, step):
+                if c._hit_control_point(QPoint(sx, sy)) is None:
+                    return sx, sy
+        return None
+
+    p1 = _free_pt() or (100, 100)
+    c.mousePressEvent(mev(QEvent.MouseButtonPress, *p1))
+    check("点一下开始画新折线", len(c.doc.cur_line) == 1, f"{len(c.doc.cur_line)} 个点")
+    p2 = _free_pt(step=41) or (300, 100)
+    c.mousePressEvent(mev(QEvent.MouseButtonPress, *p2))
+    ix1, iy1 = c.doc.vp.screen_to_image(*p1)
+    ix2, iy2 = c.doc.vp.screen_to_image(*p2)
+    want = float(np.hypot(ix2 - ix1, iy2 - iy1))
+    t = c.hud_text()
+    check("正在画：浮层报这条线的长度（= 两点间的原图像素距离）",
+          bool(t) and "正在画" in t and f"{want:.0f} px" in t, f"{t}（实测两点相距 {want:.1f}px）")
+
+    # 像素级：浮层必须**只**出现在左下角。把 hud_text 临时停掉再抓一帧 —— 中间不改任何
+    # 别的状态，所以两帧的差异只可能来自浮层本身（"报了数"和"看得见"是两码事）。
+    # 注意这台机器上 offscreen 平台的字体库是空的（QFontDatabase.families() = 0，
+    # 字形画不出来），所以这条钉的是**浮层的位置和大小**（底色框 + 文字占的宽度），
+    # 字形本身只能人眼看 —— 2026-10-09 就是靠真平台截图确认的。
+    real_hud = c.hud_text
+    c.hud_text = lambda: None
+    c.repaint()
+    off = _grab()
+    c.hud_text = real_hud
+    c.repaint()
+    on = _grab()
+    d = np.abs(on.astype(int) - off.astype(int)).sum(2) > 30
+    hh = d.shape[0]
+    corner = int(d[hh - 60:hh, :400].sum())
+    other = int(d.sum()) - corner
+    check("浮层真画在左下角（像素级）", corner > 30 and other == 0,
+          f"左下角 {corner} px 有变化，其余地方 {other} px")
+
+    # 点中某条线 = 想看这条多长
+    c.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier))
+    check("Esc 丢掉正在画的那条", not c.doc.cur_line)
+    line = c.doc.polylines[0]
+    lx, ly = c.doc.vp.image_to_screen(*line[0])
+    c.mousePressEvent(mev(QEvent.MouseButtonPress, int(lx), int(ly)))
+    c.mouseReleaseEvent(mev(QEvent.MouseButtonRelease, int(lx), int(ly)))
+    want = core.polyline_length(c.doc.polylines[0])
+    t = c.hud_text()
+    check("选中一条：浮层报的是这条的长度",
+          c.sel_index() == 1 and bool(t) and t.startswith("#1 ") and f"{want:.0f} px" in t, t)
+    c._sel = None
+
+    # 掩码阶段屏幕上没有折线，浮层就该消失（不然读数是上一张的残留观感）
+    win.set_phase(0)
+    check("掩码阶段不显示长度浮层", c.hud_text() is None)
+    win.set_phase(1)
+    check("切回折线阶段又有了", c.hud_text() is not None)
 
     # 触摸板两指滚动 = 平移视角；真鼠标滚轮维持原样（阶段1 调笔刷）
-    from PyQt5.QtCore import QPoint
+    # （QPoint 不在这里 import：一旦在函数体里赋值，整个 run_selftest 里的 QPoint 就变成
+    #   局部名，排在它前面的代码会 UnboundLocalError。模块顶上已经有了，直接用。）
     from PyQt5.QtGui import QWheelEvent
 
     def wheel(pix, ang, mod=Qt.NoModifier):
@@ -2338,11 +2924,311 @@ def run_selftest(args):
           bool((d2.store.dele == st0.dele).all()))
     check("折线也还原了", len(d2.polylines) == 2 and
           tuple(d2.polylines[0][0]) == (10.0, 10.0))
+    # 恢复出来的折线也是"会丢的成果"：重开一张标好的图（或者刚 import_lines.py 导进来的
+    # 那批）之后手一滑按 G，工具不能以为"这是我起草的、没改过"就直接替换掉
+    check("重开一张有折线的图后按 G 会先拦一下",
+          c.draft_needs_confirm() and not d2.polylines_edited and d2.polylines_loaded,
+          f"polylines_edited={d2.polylines_edited} loaded={d2.polylines_loaded}")
     check("丢弃标志 / 检查框 / 阈值还原",
           d2.drop_stem is True and d2.drop_check is False
           and list(d2.check_box) == [1, 2, 3, 4] and abs(d2.low_thresh - 0.18) < 1e-6)
     c.repaint()
     check("接着改还能画（paintEvent 正常）", int(d2.builder.frame[:, :, :3].max()) > 0)
+
+    print("== 8. 界面换模型（下拉框）==")
+    # 真加载权重在这里跑不动（自检不带真模型），所以拆成三段：候选/UI 行为、
+    # 搬运口径（纯逻辑）、以及把 IO.predict_one 和 _load_model 换掉之后的异步全流程。
+    import types
+    from PyQt5.QtGui import QWheelEvent as _QWE
+    _saved_settings2 = (IO.SETTINGS_PATH.read_bytes()
+                        if IO.SETTINGS_PATH.exists() else None)
+    _real_predict, _real_load = IO.predict_one, win._load_model
+    _real_arg = win.args.model
+    # 全程用系统临时目录：自检不该往项目的 cache\ 里丢东西
+    _mroot = Path(_tf.mkdtemp(prefix="_models_"))
+    _fake_cache = Path(_tf.mkdtemp(prefix="_fakecache_"))
+    try:
+        # ---- 候选列表：和 ckpt.resolve_model_dir 同一套 glob ----
+        for d, pth in (("model_a", True), ("model_b", True), ("model_c", False),
+                       ("other", True)):
+            (_mroot / d).mkdir()
+            if pth:
+                (_mroot / d / f"{d}.pth").write_bytes(b"x")
+        check("模型候选：只要 model_* 且真有 .pth 的，按名排序",
+              MainWindow._model_candidates(_mroot) == ["model_a", "model_b"],
+              f"列出 {MainWindow._model_candidates(_mroot)}")
+
+        # ---- 控件行为 ----
+        check("模型下拉框不抢键盘焦点（方向键要留给画布）",
+              win.model_box is not None and win.model_box.focusPolicy() == Qt.NoFocus)
+        i0 = win.model_box.currentIndex()
+        QApplication.sendEvent(win.model_box, _QWE(
+            QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, 120),
+            Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False))
+        check("鼠标滚过模型下拉框不会换模型",
+              win.model_box.currentIndex() == i0, f"第 {i0} 项 -> 第 {win.model_box.currentIndex()} 项")
+        _sb = IO.SETTINGS_PATH.read_bytes() if IO.SETTINGS_PATH.exists() else None
+        win._fill_model_box()
+        check("刷下拉框不写 settings.json（也不该动磁盘）",
+              (IO.SETTINGS_PATH.read_bytes() if IO.SETTINGS_PATH.exists() else None) == _sb)
+        check("下拉框选中的就是当前在用的那个（不在 model\\ 下也显示出来）",
+              win.model_box.currentData() == win.model_name
+              and ("不在 model" in win.model_box.currentText()) ==
+              (win.model_name not in MainWindow._model_candidates()),
+              f"显示 {win.model_box.currentText()!r} / 在用 {win.model_name!r}")
+
+        # ---- 搬运口径（纯逻辑，最要命的一条）----
+        st_h = core.MaskStore(np.zeros((10, 10), np.uint8))
+        st_h.add[2:4, 2:4] = 255
+        st_h.dele[6:8, 6:8] = 255
+        fake_doc = types.SimpleNamespace(stem="X", store=st_h, model_name="model_A",
+                                         polylines=[[(0.0, 0.0), (1.0, 1.0)]],
+                                         drop_stem=True, drop_check=False)
+        carry = win._snapshot_human(fake_doc)
+        new_res = {"pred": np.zeros((10, 10), np.uint8), "prob": None, "low_thresh": 0.33,
+                   "check_box": [1, 2, 3, 4], "check_ok": True,
+                   "stem_polys": [[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]]}
+        out = win._apply_carry(dict(new_res), carry, "X")
+        check("搬运：涂改 / 折线 / 丢弃标志原样过来",
+              bool((out["add"] == st_h.add).all()) and bool((out["dele"] == st_h.dele).all())
+              and out["meta"]["polylines"] == [[(0.0, 0.0), (1.0, 1.0)]]
+              and out["meta"]["drop_stem"] is True)
+        check("搬运：红层/概率/阈值/检查框/茎全是新模型的（不搬旧的，才自洽）",
+              out["pred"] is new_res["pred"] and out["low_thresh"] == 0.33
+              and out["check_box"] == [1, 2, 3, 4]
+              and out["stem_polys"] == new_res["stem_polys"])
+        st_h.add[:] = 0
+        check("搬运是拷贝不是引用（旧 store 再涂也不影响搬运包）", bool(carry["add"].any()))
+        _other = win._apply_carry(dict(new_res), carry, "别的图")
+        check("不是同一张图就不搬（宁可少搬一次，也不贴错图）",
+              "add" not in _other and _other["pred"] is new_res["pred"])
+        check("纯预测的图没有可搬的（返回 None，不该被标成未保存）",
+              win._snapshot_human(types.SimpleNamespace(
+                  stem="Y", store=core.MaskStore(np.zeros((4, 4), np.uint8)),
+                  polylines=[], drop_stem=False, drop_check=False)) is None)
+
+        # ---- 打开一张图时去"别的模型"的缓存里捞人做的部分（换模型后不再看不见折线）----
+        _other_dir = IO.CACHE_ROOT / "_selftest_other"
+        _other_dir.mkdir(parents=True, exist_ok=True)
+        _st_h = core.MaskStore(np.zeros((img.shape[0], img.shape[1]), np.uint8))
+        _st_h.add[300:340, 300:420] = 255
+        _stem0 = imgs[0].stem
+        IO.save_cache(_other_dir, _stem0, _st_h,
+                      IO.meta_for_save("model_other", img.shape, _stem0, imgs[0].name,
+                                       0.2, [1, 2, 3, 4], True, [], False, False,
+                                       [[(11.0, 12.0), (13.0, 14.0)]],
+                                       prob=np.zeros((8, 8), np.float32)))
+        check("纯预测的缓存不算'人做的'（--prefetch 建的那种）",
+              not MainWindow._cached_has_human(
+                  {"meta": {"polylines": []}, "add": np.zeros((4, 4), np.uint8),
+                   "dele": np.zeros((4, 4), np.uint8)})
+              and MainWindow._cached_has_human(
+                  {"meta": {"polylines": [[(0, 0), (1, 1)]]}, "add": None, "dele": None})
+              and MainWindow._cached_has_human(
+                  {"meta": {}, "add": np.full((4, 4), 255, np.uint8), "dele": None}))
+        _got = win._human_from_other_models(_stem0)
+        check("能从别的模型的缓存里找到折线/涂改", _got is not None and _got["from"] == "_selftest_other"
+              and _got["polylines"] == [[(11.0, 12.0), (13.0, 14.0)]]
+              and bool(_got["add"].any()),
+              f"来自 {_got and _got['from']}｜折线 {(None if _got is None else _got['polylines'])}"
+              f"｜涂改 {0 if _got is None else int(_got['add'].sum())}")
+        # 真开一遍：先把这个 stem 在**当前模型**（selftest）下的缓存删掉，
+        # 不然第 7 步留下的那份缓存会直接命中（那才是"当前模型的会话"，不该搬）
+        for _p in IO.cache_paths(IO.cache_dir("selftest"), _stem0).values():
+            _p.unlink(missing_ok=True)
+        win.set_dirty(False)
+        win.open_image(0, force=True)
+        app.processEvents()
+        _d = win.doc
+        check("打开一张图就把别的模型里的折线搬进来了",
+              _d is not None and len(_d.polylines) == 1
+              and tuple(_d.polylines[0][0]) == (11.0, 12.0)
+              and bool(_d.store.add[300:340, 300:420].all()) and _d.dirty is True,
+              f"折线 {0 if _d is None else len(_d.polylines)} 条")
+        shutil.rmtree(_other_dir, ignore_errors=True)
+
+        # ---- 全流程：把预测和加载都换掉，走一遍真的 switch_model ----
+        def _fake_predict(model, img, meta, device, tile=0, **kw):
+            h, w = img.shape[:2]
+            pred = np.zeros((h, w), np.uint8)
+            pred[:h // 2] = 255                       # "新模型的红层"：上半张
+            return {"pred": pred, "prob": np.zeros((4, 4), np.float32),
+                    "check_box": [11, 22, 33, 44], "check_ok": True, "root_ok": True,
+                    "stem_polys": [[(0.0, 0.0), (5.0, 0.0), (5.0, 5.0)]],
+                    "low_thresh": 0.33}
+
+        def _fake_load(arg=None):
+            win.model_name, win.cache_dir = "model_fake_B", _fake_cache
+            return True, ""
+
+        IO.predict_one = _fake_predict
+        win._load_model = _fake_load
+        win.args.selftest = False                     # switch_model 在自检模式下直接 return
+        win.set_phase(1)                              # 站在折线阶段换模型
+        win.set_dirty(False)
+        h_img, w_img = win.doc.img.shape[:2]
+        win.doc.store.add[10:40, 10:40] = 255         # 造点"人做的部分"
+        win.doc.polylines = [[(1.0, 2.0), (3.0, 4.0)]]
+        win.doc.drop_stem = True
+        old_pred = win.doc.store.pred.copy()
+        check("switch_model 成功", win.switch_model("model_fake_B") is True)
+        for _ in range(400):                          # 等预测线程 + done 信号落地
+            app.processEvents()
+            if win.pending_idx is None and (win.worker is None or not win.worker.isRunning()):
+                break
+            time.sleep(0.02)
+        app.processEvents()
+        d3 = win.doc
+        check("换模型后：红层是新模型的、概率图也是",
+              d3 is not None and bool((d3.store.pred != old_pred).any())
+              and int(d3.store.pred[:h_img // 2].min()) == 255,
+              f"红层 {int((d3.store.pred > 0).sum())} px")
+        check("换模型后：涂改 / 折线 / 丢弃标志原样搬过来",
+              bool((d3.store.add[10:40, 10:40] == 255).all()) and len(d3.polylines) == 1
+              and d3.drop_stem is True)
+        check("换模型后：阈值/检查框/茎来自新模型",
+              abs(d3.low_thresh - 0.33) < 1e-6 and list(d3.check_box) == [11, 22, 33, 44]
+              and len(d3.stem_polys) == 1)
+        check("搬过来的东西算未保存（不标脏会被静默丢掉）", d3.dirty is True)
+        check("换模型后按 G 会先拦一下", win.canvas.draft_needs_confirm())
+        # 折线只在折线阶段画出来：换完模型被踢回掩码阶段的话，用户看到的就是"折线没了"
+        # （2026-10-09 用户报的），数据其实搬过来了
+        check("换模型后还站在折线阶段（折线看得见）", win.canvas.phase == 1)
+        check("新 doc 记的是新模型（存盘才会写进对的目录）",
+              d3.model_name == "model_fake_B" and d3.cache_dir == _fake_cache)
+        check("换模型这条路上合成/绘制也跑通（以前这里踩只读 property 必崩）",
+              int(d3.builder.frame[:, :, :3].max()) > 0)
+        # 存一次：meta 里的模型名必须跟 doc 走，不能跟 self 走
+        win.set_dirty(False)
+        win.save(go_next=False)
+        _mp = IO.cache_paths(d3.cache_dir, d3.stem)["meta"]
+        _got = json.loads(_mp.read_text(encoding="utf-8")).get("model") if _mp.exists() else "没写"
+        check("存盘时 meta 里的模型名跟 doc 走（不会新名字写进旧目录）",
+              _got == d3.model_name, f"meta.model = {_got}")
+
+        # ---- 失败要能回滚：换到不存在的模型 ----
+        win._load_model = _real_load
+        _name0, _cache0 = win.model_name, win.cache_dir
+        _n_crit = sum(1 for k, _ in asked if k == "critical")
+        check("换到不存在的模型：返回失败、弹提示、还是用原来的",
+              win.switch_model("绝对不存在的模型_zzz") is False
+              and win.model_name == _name0 and win.cache_dir == _cache0
+              and sum(1 for k, _ in asked if k == "critical") > _n_crit)
+        check("失败后下拉框弹回当前模型",
+              win.model_box.currentData() == win.model_name,
+              f"下拉框显示 {win.model_box.currentText()!r}")
+
+        # ---- 记住选择：合并写，别把带宽抹掉 ----
+        IO.SETTINGS_PATH.unlink(missing_ok=True)
+        win._remember_model("model_fake_B")
+        win.set_poly_width(w_keep)
+        _st = IO.load_settings()
+        check("记住模型和记住带宽互不覆盖（settings 是合并写）",
+              _st.get("model") == "model_fake_B" and "poly_width" in _st, f"settings = {_st}")
+        win.args.model = None
+        check("启动取哪个模型：记住的 > 最新", win._initial_model_arg() == "model_fake_B")
+        # 尺度特别大的模型要提前打招呼（2026-10-09：长边 2736 那个在 8GB 显存的笔记本上
+        # 顶到 9.7GB 内存、一张 12.5 秒，用户以为工具卡死了）
+        check("大尺度模型会提前提醒，正常的不会",
+              MainWindow._size_warning("m", 2736) != ""
+              and "2736" in MainWindow._size_warning("m", 2736)
+              and MainWindow._size_warning("m", 1024) == ""
+              and MainWindow._size_warning("m", None) == "",
+              MainWindow._size_warning("m", 2736)[:34])
+        win.args.model = "命令行点的"
+        check("命令行点名时以命令行为准（界面里记住的不算）",
+              win._initial_model_arg() == "命令行点的")
+    finally:
+        win.args.selftest = True
+        win.args.model = _real_arg
+        IO.predict_one, win._load_model = _real_predict, _real_load
+        win.model_name, win.cache_dir = "selftest", IO.cache_dir("selftest")
+        win.model = win.meta = None
+        shutil.rmtree(_mroot, ignore_errors=True)
+        shutil.rmtree(_fake_cache, ignore_errors=True)
+        if _saved_settings2 is None:
+            IO.SETTINGS_PATH.unlink(missing_ok=True)
+        else:
+            IO.SETTINGS_PATH.write_bytes(_saved_settings2)
+
+    print("== 9. 「预测」开关（关掉就不跑模型，没缓存就给空掩码）==")
+    # 备份必须在**任何写 settings 之前**，否则还原回去的是被自己污染过的那份
+    _saved_settings3 = (IO.SETTINGS_PATH.read_bytes()
+                        if IO.SETTINGS_PATH.exists() else None)
+    # 这一段的起点必须是"预测开着"：别依赖 settings.json 里当时是什么（上一次跑留下的
+    # 值会让"先有一版红层"那条空转 —— 2026-10-09 真踩过）
+    win.predict_action.setChecked(True)
+    _other2 = IO.CACHE_ROOT / "_selftest_other2"
+    try:
+        _other2.mkdir(parents=True, exist_ok=True)
+        _stem1 = imgs[0].stem
+        IO.save_cache(_other2, _stem1,
+                      core.MaskStore(np.zeros((img.shape[0], img.shape[1]), np.uint8)),
+                      IO.meta_for_save("model_other2", img.shape, _stem1, imgs[0].name,
+                                       0.2, [1, 2, 3, 4], True, [], False, False,
+                                       # 折线要够长：3 个像素的那种在 1/4 尺度的分区图上会
+                                       # 整条消失（cv2.polylines 画不出来），那块掩码就没主了
+                                       [[(300.0, 300.0), (1200.0, 800.0)]],
+                                       prob=np.zeros((8, 8), np.float32)))
+        for _p in IO.cache_paths(IO.cache_dir("selftest"), _stem1).values():
+            _p.unlink(missing_ok=True)     # 确保是"当前模型没有缓存"那条路
+        # 先让当前这张图带上红层（自检假预测给 4 条红棒），才验得了"关掉时会不会清掉"
+        win.set_dirty(False)
+        win.open_image(0, force=True)
+        app.processEvents()
+        check("先有一版红层（准备验关掉预测时清不清）",
+              win.doc is not None and bool(win.doc.store.pred.any()),
+              f"红层 {0 if win.doc is None else int((win.doc.store.pred > 0).sum())} px")
+        win.predict_action.setChecked(False)          # 走按钮真的那条路
+        check("关掉预测：**当前这张的红层也清掉了**",
+              not win.doc.store.pred.any() and win.doc.dirty is True)
+        win.undo()
+        check("清红层是可撤销的（Ctrl+Z 回来）", bool(win.doc.store.pred.any()),
+              f"红层 {int((win.doc.store.pred > 0).sum())} px")
+        win.redo()
+        check("关掉预测：状态栏写明、settings 记住（且没抹掉带宽）",
+              win.predict_on is False and "不预测" in win.status.text()
+              and IO.load_settings().get("predict") is False
+              and "poly_width" in IO.load_settings())
+        win.set_dirty(False)
+        win.open_image(0, force=True)
+        app.processEvents()
+        d4 = win.doc
+        check("没缓存时给的是空掩码、**没跑模型**（worker 都没建）",
+              d4 is not None and not d4.store.pred.any() and d4.prob is None
+              and d4.check_box is None and win.worker is None,
+              f"红层 {0 if d4 is None else int((d4.store.pred > 0).sum())}px / worker={win.worker}")
+        check("不预测也照样把别的模型里的折线搬来", len(d4.polylines) == 1
+              and tuple(d4.polylines[0][0]) == (300.0, 300.0),
+              f"{len(d4.polylines)} 条")
+        c.repaint()
+        check("空掩码也能画（paintEvent 跑通）", int(d4.builder.frame[:, :, :3].max()) > 0)
+        d4.store.begin_stroke()
+        d4.store.paint_segment(500, 500, 900, 500, 40, core.MODE_ADD)   # 涂在那条折线旁边
+        d4.store.end_stroke()
+        win.set_dirty(True)
+        win._recompute_polygons()
+        check("空掩码上涂的绿照样算得出多边形（每条折线一个）",
+              len(d4.polygons or []) == 1, f"{len(d4.polygons or [])} 个")
+        win.predict_action.setChecked(True)
+        check("再打开预测：开关和 settings 都回到 true",
+              win.predict_on is True and IO.load_settings().get("predict") is True)
+        # 打开预测 = 现在就想要红层，不该让人再翻页回来（2026-10-09 用户问的）
+        check("再打开预测：当前这张立刻重算、红层回来、折线还在",
+              win.doc is not None and bool(win.doc.store.pred.any())
+              and len(win.doc.polylines) == 1,
+              f"红层 {0 if win.doc is None else int((win.doc.store.pred > 0).sum())}px / "
+              f"折线 {0 if win.doc is None else len(win.doc.polylines)} 条")
+    finally:
+        shutil.rmtree(_other2, ignore_errors=True)
+        win.predict_on = True
+        win.predict_action.blockSignals(True)
+        win.predict_action.setChecked(True)
+        win.predict_action.blockSignals(False)
+        if _saved_settings3 is None:
+            IO.SETTINGS_PATH.unlink(missing_ok=True)
+        else:
+            IO.SETTINGS_PATH.write_bytes(_saved_settings3)
 
     # 清理：删掉整个临时输出目录（里面的东西只有自检会看），缓存里的 selftest 目录同理。
     # 用 rmtree 而不是逐个删 —— 逐个删就要靠"记住自己写过什么"，而漏记一个名字

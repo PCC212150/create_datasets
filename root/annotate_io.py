@@ -92,12 +92,19 @@ def load_settings() -> dict:
 
 
 def save_settings(d: dict) -> None:
-    """写界面偏好。**写不进去不能让工具崩**（只读目录、盘满都可能）——
-    顶多是这次的选择下回不记得，不值得中断用户手上的活。"""
+    """写界面偏好。**合并写**，不是整份覆盖 —— 每个调用方只管自己那几个键。
+
+    整份覆盖踩过：宽带旋钮写 `{"poly_width": w}`、换模型写 `{"model": name}`，
+    两边都按"我知道全部内容"来写，结果互相把对方的键抹掉（带宽突然回默认 10、
+    或者下次启动换了模型）。合并写之后，加新键也不用再来改每个老的调用点。
+    写不进去不能让工具崩（只读目录、盘满都可能）—— 顶多是这次的选择下回不记得。
+    """
     try:
+        body = load_settings()
+        body.update(d)
         tmp = SETTINGS_PATH.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False, indent=1)
+            json.dump(body, f, ensure_ascii=False, indent=1)
         os.replace(tmp, SETTINGS_PATH)
     except Exception as e:
         print(f"[提示] 界面设置没写进去（{e}），这次的选择下次启动不会记得")
