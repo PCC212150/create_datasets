@@ -226,14 +226,24 @@ def cache_paths(cdir: Path, stem: str) -> dict:
             "meta": cdir / f"{stem}_meta.json"}
 
 
-def load_cache(cdir, stem, model_name: str):
-    """读某张图的缓存；三件缺一或模型名对不上就返回 None（当作没缓存，重新预测）。"""
+def load_cache(cdir, stem, model_name: str, quiet: bool = False):
+    """读某张图的缓存。**掩码和 meta 必须有**（或者模型名对不上）才算没有；概率图可以缺。
+
+    概率图缺了照样认这份缓存（`prob=None`）：**关掉「预测」从零标再存盘的图就没有概率图**
+    （没跑过模型），但那是一份**完整的会话**（折线、绿蓝涂改都在）。以前按"三件缺一就整份
+    作废"处理，结果那种图打开时折线全看不见、再存一次就真没了（2026-10-10 用户报的）。
+
+    **这么放宽不会放过"写了一半的缓存"**：`save_cache` 的落盘顺序是
+    masks -> prob -> meta，meta 最后写。所以"meta 在、prob 不在"不可能是崩在半路留下的
+    （崩了会缺 meta，那种仍然整份作废）。
+    """
     cp = cache_paths(Path(cdir), stem)
     missing = [k for k, p in cp.items() if not p.exists()]
-    if missing:
-        # 一张都没做过的图是常态（不吭声）；**做了一半**才是异常，
-        # 但要吭声 —— 否则"为什么这张图每次都要重新预测"会完全无从查起。
-        if len(missing) < len(cp):
+    if "masks" in missing or "meta" in missing:
+        # 一张都没做过的图是常态（不吭声）；**做了一半**才是异常，但要吭声 ——
+        # 否则"为什么这张图每次都要重新预测"会完全无从查起。
+        # quiet：翻别人模型目录时别吭声（那是例行检查，不是用户打开了这张图）。
+        if not quiet and len(missing) < len(cp):
             print(f"[提示] {stem} 的缓存不完整（缺 {', '.join(missing)}），这张图会重新预测")
         return None
     try:
@@ -247,9 +257,10 @@ def load_cache(cdir, stem, model_name: str):
         pred = np.ascontiguousarray(arr[:, :, 0])
         add = np.ascontiguousarray(arr[:, :, 1])
         dele = np.ascontiguousarray(arr[:, :, 2])
-        prob = np.load(cp["prob"])
+        prob = None if "prob" in missing else np.load(cp["prob"])
     except Exception as e:                      # 缓存损坏不该让工具起不来
-        print(f"[警告] 缓存读取失败（{stem}）：{e}；将重新预测")
+        if not quiet:
+            print(f"[警告] 缓存读取失败（{stem}）：{e}；将重新预测")
         return None
     return {"pred": pred, "add": add, "dele": dele, "prob": prob, "meta": meta}
 

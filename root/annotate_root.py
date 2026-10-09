@@ -191,7 +191,7 @@ class PredictWorker(QThread):
 
 # 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
 # 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
-SELFTEST_CHECKS = 134
+SELFTEST_CHECKS = 135
 
 
 def build_info() -> str:
@@ -1609,8 +1609,9 @@ class MainWindow(QMainWindow):
                 continue
             try:
                 # 模型名传 None：**故意关掉** load_cache 那道"meta 里的模型名要和目录一致"
-                # 的校验 —— 这里就是要翻别人的目录，校验只会把要的东西挡在外面
-                cached = IO.load_cache(d, stem, None)
+                # 的校验 —— 这里就是要翻别人的目录，校验只会把要的东西挡在外面。
+                # quiet=True：这是例行翻目录，缺件的缓存别在控制台吭声（用户没打开那张图）
+                cached = IO.load_cache(d, stem, None, quiet=True)
             except Exception:
                 continue
             if cached is None or not self._cached_has_human(cached):
@@ -2282,6 +2283,9 @@ def run_selftest(args):
     import json
     ok = True
     n_checks = [0]                   # 实跑了几项（和 SELFTEST_CHECKS 对，当版本指纹用）
+    # 开跑前先清掉自检自己的缓存目录：上一次自检要是**崩在半路**（清理段没跑到），
+    # 留下的缓存会让这一次"打开图"直接命中旧状态，几条检查跟着假失败（2026-10-10 踩过）
+    shutil.rmtree(IO.cache_dir("selftest"), ignore_errors=True)
 
     def check(name, cond, extra=""):
         nonlocal ok
@@ -2947,8 +2951,8 @@ def run_selftest(args):
                                    0.18, [1, 2, 3, 4], True, [[(5.0, 5.0), (6.0, 6.0),
                                                               (7.0, 7.0)]],
                                    True, False, saved_lines,
-                                   # 概率图必须给：缓存三件（掩码/概率/元信息）缺一件就整份作废，
-                                   # 所以只写掩码的"半份缓存"会被正确地判成没有缓存
+                                   # 概率图这儿仍然给上（调松紧要靠它重算红层）；
+                                   # **但缺了也认这份缓存** —— 见下面那条 check
                                    prob=np.zeros((16, 16), np.float32)))
     win.open_image(0, force=True)
     d2 = win.doc
@@ -2969,6 +2973,22 @@ def run_selftest(args):
           and list(d2.check_box) == [1, 2, 3, 4] and abs(d2.low_thresh - 0.18) < 1e-6)
     c.repaint()
     check("接着改还能画（paintEvent 正常）", int(d2.builder.frame[:, :, :3].max()) > 0)
+    # **缺概率图的缓存照样能用**：关掉「预测」从零标再存盘就是这种（没跑过模型），
+    # 折线/涂改都在里面 —— 按"三件缺一就作废"处理的话，用户的折线会看不见、
+    # 再存一次就真没了（2026-10-10 用户报的）。保存顺序是 masks->prob->meta，
+    # meta 最后落盘，"meta 在 prob 不在"不可能来自崩在半路。
+    IO.cache_paths(IO.cache_dir("selftest"), cache_stem)["prob"].unlink(missing_ok=True)
+    IO.save_cache(IO.cache_dir("selftest"), cache_stem, st0,
+                  IO.meta_for_save("selftest", img.shape, cache_stem, imgs[0].name,
+                                   0.18, [1, 2, 3, 4], True, [], True, False,
+                                   saved_lines))          # 不给 prob = 不写概率图
+    win.set_dirty(False)
+    win.open_image(0, force=True)
+    d2b = win.doc
+    check("缺 prob 的缓存也认（折线/涂改都在，prob 为 None）",
+          d2b is not None and d2b.prob is None and len(d2b.polylines) == 2
+          and bool((d2b.store.add == st0.add).all()),
+          f"折线 {0 if d2b is None else len(d2b.polylines)} 条 / prob={None if d2b is None else d2b.prob}")
 
     print("== 8. 界面换模型（下拉框）==")
     # 真加载权重在这里跑不动（自检不带真模型），所以拆成三段：候选/UI 行为、
