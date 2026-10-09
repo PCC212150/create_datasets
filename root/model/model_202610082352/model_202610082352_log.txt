@@ -1,0 +1,461 @@
+===== 训练开始 2026-10-08 23:52:34 =====
+hparams: {"size": 1024, "crop": 0, "crop_repeat": 8, "batch": 8, "accum": 4, "src_weight": 0.3, "no_gt_mask": false, "epochs": 10000, "lr": 0.001, "patience": 120, "lr_patience": 25, "val_size": 4, "seed": 42, "pos_weight": null, "data_dir": "/home/yejin/project-PCC/Deep_learning_model_for_sugarcane/root_model/datasets/root/train", "out_dir": "/home/yejin/project-PCC/Deep_learning_model_for_sugarcane/root_model/model", "norm": "batch", "workers": 2, "no_amp": false, "gpu": "NVIDIA GeForce RTX 3090", "cpu": false, "device": "cuda:0", "ddp_world_size": 3, "ddp_rank": 0, "ddp_backend": "nccl", "val_names": ["plant_ S062-4_20251116ST", "plant_ S062-4_20251126ST", "plant_ S068-3_20251116ST", "plant_ S068-3_20251126ST", "plant_ S127-2_20251116ST", "plant_ S221-3_20251116ST"], "train_names": ["plant_ S062-1_20251116ST", "plant_ S062-1_20251126ST", "plant_ S062-2_20251116ST", "plant_ S062-2_20251126ST", "plant_ S062-3_20251116ST", "plant_ S062-3_20251126ST", "plant_ S068-1_20251116ST", "plant_ S068-1_20251126ST", "plant_ S068-2_20251116ST", "plant_ S068-2_20251126ST", "plant_ S127-1_20251116ST", "plant_ S127-4_20251116ST", "plant_ S221-2_20251116ST", "plant_ S221-4_20251116ST", "plant_S001-1_20251116ST", "plant_S001-2_20251116ST", "plant_S001-4_20251116ST", "plant_S002-1_20251116ST", "plant_S002-2_20251116ST", "plant_S003-1_20251116ST", "plant_S003-2_20251116ST", "plant_S003-3_20251116ST", "plant_S003-4_20251116ST", "root_C002-1_20241229CK", "root_C002-1_20241231CK", "root_C002-1_20250102CK", "root_C002-1_20250104CK", "root_C002-1_20250106CK", "root_C002-1_20250108CK", "root_C002-1_20250110CK", "root_C002-1_20250113CK", "root_C003-4_20241229CK", "root_C003-4_20241231CK", "root_C003-4_20250102CK", "root_C003-4_20250104CK", "root_C003-4_20250106CK", "root_C003-4_20250108CK", "root_C003-4_20250110CK", "root_C003-4_20250113CK", "root_C006-1_20241229CK", "root_C006-1_20241231CK", "root_C006-1_20250102CK", "root_C006-1_20250104CK", "root_C006-1_20250106CK", "root_C006-1_20250108CK", "root_C006-1_20250110CK", "root_C006-1_20250113CK", "root_C011-1_20241229CK", "root_C011-1_20241231CK", "root_C011-1_20250102CK", "root_C011-2_20241229CK", "root_C011-3_20241229CK", "root_C011-4_20241229CK", "root_C019-1_20241231CK", "root_C019-1_20250102CK", "root_C019-2_20241229CK", "root_C019-2_20241231CK", "root_C019-2_20250102CK", "root_C019-2_20250104CK", "root_C019-2_20250106CK", "root_C019-2_20250108CK", "root_C019-3_20241229CK", "root_C019-3_20241231CK", "root_C019-3_20250102CK", "root_C034-1_20241231CK", "root_C034-2_20241229CK", "root_C034-3_20241229CK", "root_C034-4_20241229CK", "root_C076-1_20241229CK", "root_C076-2_20241229CK", "root_C076-3_20241229CK", "root_C076-4_20241229CK", "root_C172-1_20241229CK", "root_C172-2_20241229CK", "root_C172-3_20241229CK", "root_C200-4_20241229CK", "root_P001-1_20241229PEG", "root_P001-1_20241231PEG", "root_P001-1_20250102PEG", "root_P001-1_20250104PEG", "root_P001-1_20250106PEG"], "val_plants": ["S062-4", "S068-3", "S127-2", "S221-3"], "train_plants": ["C002-1", "C003-4", "C006-1", "C011-1", "C011-2", "C011-3", "C011-4", "C019-1", "C019-2", "C019-3", "C034-1", "C034-2", "C034-3", "C034-4", "C076-1", "C076-2", "C076-3", "C076-4", "C172-1", "C172-2", "C172-3", "C200-4", "P001-1", "S001-1", "S001-2", "S001-4", "S002-1", "S002-2", "S003-1", "S003-2", "S003-3", "S003-4", "S062-1", "S062-2", "S062-3", "S068-1", "S068-2", "S127-1", "S127-4", "S221-2", "S221-4"], "class_names": ["root", "stem", "check"], "out_ch": 3, "loss_bce_w": [1.0, 1.0, 0.3], "loss_dice_w": [1.0, 1.0, 0.0], "loss_pos_weight": [1.0, 10.0, 1.0], "loss_cldice_w": [0.0, 0.0, 0.0], "cldice_iters": 5, "params_M": 31.04, "start": "2026-10-08 23:52:34", "model_name": "model_202610082352"}
+[信息] NVIDIA GeForce RTX 3090 | 参数量 31.04M | 输入 1024 | batch 8×3卡=24×累积4=96 | lr 0.001 | epochs 10000 | 训练 81 组 | 验证 6 组(4 植株)
+[信息] 通道 ('root', 'stem', 'check') | BCE权重 (1.0, 1.0, 0.3) | Dice权重 (1.0, 1.0, 0.0) | 正样本权重 (1.0, 10.0, 1.0)
+[信息] 学习率 0.001 | 平台期 25 轮不减半就 ×0.5（下限 1e-05）| 早停 120 轮
+[信息] clDice 拓扑损失: 关闭
+[信息] 模型目录: /home/yejin/project-PCC/Deep_learning_model_for_sugarcane/root_model/model/model_202610082352
+[Epoch 001/10000] loss=1.6824 val_dice=0.0000 val_iou=0.0000 time=4.2s lr=1.00e-03 root_dice=0.0000 stem_dice=0.0000 check_dice=0.0000 select_dice=0.0000 *best*
+[Epoch 002/10000] loss=1.6064 val_dice=0.0000 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0000 stem_dice=0.0000 check_dice=0.0000 select_dice=0.0000
+[Epoch 003/10000] loss=1.5486 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.0000 check_dice=0.0000 select_dice=0.0000
+[Epoch 004/10000] loss=1.5132 val_dice=0.0003 val_iou=0.0002 time=2.8s lr=1.00e-03 root_dice=0.0003 stem_dice=0.0000 check_dice=0.0000 select_dice=0.0000
+[Epoch 005/10000] loss=1.4738 val_dice=0.0101 val_iou=0.0052 time=2.8s lr=1.00e-03 root_dice=0.0101 stem_dice=0.0000 check_dice=0.6906 select_dice=0.0000
+[Epoch 006/10000] loss=1.4463 val_dice=0.0086 val_iou=0.0044 time=2.8s lr=1.00e-03 root_dice=0.0086 stem_dice=0.0000 check_dice=0.7854 select_dice=0.0000
+[Epoch 007/10000] loss=1.4395 val_dice=0.0164 val_iou=0.0084 time=2.8s lr=1.00e-03 root_dice=0.0164 stem_dice=0.0000 check_dice=0.8092 select_dice=0.0000
+[Epoch 008/10000] loss=1.4208 val_dice=0.0150 val_iou=0.0077 time=2.8s lr=1.00e-03 root_dice=0.0150 stem_dice=0.0000 check_dice=0.8455 select_dice=0.0000
+[Epoch 009/10000] loss=1.4179 val_dice=0.0037 val_iou=0.0019 time=2.8s lr=1.00e-03 root_dice=0.0037 stem_dice=0.0000 check_dice=0.8507 select_dice=0.0000
+[Epoch 010/10000] loss=1.4047 val_dice=0.0005 val_iou=0.0002 time=2.7s lr=1.00e-03 root_dice=0.0005 stem_dice=0.0000 check_dice=0.8536 select_dice=0.0000
+[Epoch 011/10000] loss=1.3793 val_dice=0.0001 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0001 stem_dice=0.0718 check_dice=0.8382 select_dice=0.0000
+[Epoch 012/10000] loss=1.3749 val_dice=0.0000 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0000 stem_dice=0.0199 check_dice=0.8416 select_dice=0.0000
+[Epoch 013/10000] loss=1.3618 val_dice=0.0003 val_iou=0.0002 time=2.8s lr=1.00e-03 root_dice=0.0003 stem_dice=0.0663 check_dice=0.8452 select_dice=0.0000
+[Epoch 014/10000] loss=1.3448 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.5783 check_dice=0.8430 select_dice=0.0000
+[Epoch 015/10000] loss=1.3290 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.8541 check_dice=0.8418 select_dice=0.0000
+[Epoch 016/10000] loss=1.3406 val_dice=0.0000 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0000 stem_dice=0.8223 check_dice=0.8339 select_dice=0.0000
+[Epoch 017/10000] loss=1.3138 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.4761 check_dice=0.8446 select_dice=0.0000
+[Epoch 018/10000] loss=1.3188 val_dice=0.0004 val_iou=0.0002 time=3.3s lr=1.00e-03 root_dice=0.0004 stem_dice=0.3442 check_dice=0.8305 select_dice=0.0002 *best*
+[Epoch 019/10000] loss=1.3132 val_dice=0.0000 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0000 stem_dice=0.3204 check_dice=0.8298 select_dice=0.0000
+[Epoch 020/10000] loss=1.2951 val_dice=0.0001 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0001 stem_dice=0.3361 check_dice=0.8408 select_dice=0.0001
+[Epoch 021/10000] loss=1.2931 val_dice=0.0001 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0001 stem_dice=0.2945 check_dice=0.8389 select_dice=0.0000
+[Epoch 022/10000] loss=1.2707 val_dice=0.0002 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0002 stem_dice=0.3700 check_dice=0.8462 select_dice=0.0001
+[Epoch 023/10000] loss=1.2622 val_dice=0.0001 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0001 stem_dice=0.4159 check_dice=0.8482 select_dice=0.0001
+[Epoch 024/10000] loss=1.2635 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.4786 check_dice=0.8454 select_dice=0.0000
+[Epoch 025/10000] loss=1.2693 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.5956 check_dice=0.8450 select_dice=0.0000
+[Epoch 026/10000] loss=1.2522 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.6019 check_dice=0.8464 select_dice=0.0000
+[Epoch 027/10000] loss=1.2460 val_dice=0.0002 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0002 stem_dice=0.6398 check_dice=0.8443 select_dice=0.0002
+[Epoch 028/10000] loss=1.2434 val_dice=0.0008 val_iou=0.0004 time=3.3s lr=1.00e-03 root_dice=0.0008 stem_dice=0.6780 check_dice=0.8434 select_dice=0.0007 *best*
+[Epoch 029/10000] loss=1.2403 val_dice=0.0018 val_iou=0.0009 time=3.2s lr=1.00e-03 root_dice=0.0018 stem_dice=0.6127 check_dice=0.8438 select_dice=0.0015 *best*
+[Epoch 030/10000] loss=1.2348 val_dice=0.0017 val_iou=0.0009 time=2.7s lr=1.00e-03 root_dice=0.0017 stem_dice=0.5960 check_dice=0.8454 select_dice=0.0014
+[Epoch 031/10000] loss=1.2192 val_dice=0.0015 val_iou=0.0008 time=2.7s lr=1.00e-03 root_dice=0.0015 stem_dice=0.6392 check_dice=0.8460 select_dice=0.0013
+[Epoch 032/10000] loss=1.2241 val_dice=0.0019 val_iou=0.0010 time=3.3s lr=1.00e-03 root_dice=0.0019 stem_dice=0.7141 check_dice=0.8474 select_dice=0.0019 *best*
+[Epoch 033/10000] loss=1.2108 val_dice=0.0018 val_iou=0.0009 time=2.7s lr=1.00e-03 root_dice=0.0018 stem_dice=0.7996 check_dice=0.8483 select_dice=0.0018
+[Epoch 034/10000] loss=1.1996 val_dice=0.0013 val_iou=0.0006 time=2.8s lr=1.00e-03 root_dice=0.0013 stem_dice=0.8446 check_dice=0.8463 select_dice=0.0013
+[Epoch 035/10000] loss=1.1956 val_dice=0.0005 val_iou=0.0003 time=2.8s lr=1.00e-03 root_dice=0.0005 stem_dice=0.8524 check_dice=0.8500 select_dice=0.0005
+[Epoch 036/10000] loss=1.1787 val_dice=0.0004 val_iou=0.0002 time=2.8s lr=1.00e-03 root_dice=0.0004 stem_dice=0.8192 check_dice=0.8515 select_dice=0.0004
+[Epoch 037/10000] loss=1.1985 val_dice=0.0005 val_iou=0.0002 time=2.7s lr=1.00e-03 root_dice=0.0005 stem_dice=0.7658 check_dice=0.8575 select_dice=0.0005
+[Epoch 038/10000] loss=1.1734 val_dice=0.0003 val_iou=0.0002 time=2.8s lr=1.00e-03 root_dice=0.0003 stem_dice=0.7104 check_dice=0.8580 select_dice=0.0003
+[Epoch 039/10000] loss=1.1686 val_dice=0.0002 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0002 stem_dice=0.6811 check_dice=0.8579 select_dice=0.0002
+[Epoch 040/10000] loss=1.1599 val_dice=0.0003 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0003 stem_dice=0.6776 check_dice=0.8593 select_dice=0.0002
+[Epoch 041/10000] loss=1.1626 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.6999 check_dice=0.8628 select_dice=0.0000
+[Epoch 042/10000] loss=1.1538 val_dice=0.0000 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0000 stem_dice=0.7622 check_dice=0.8591 select_dice=0.0000
+[Epoch 043/10000] loss=1.1466 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.8567 check_dice=0.8585 select_dice=0.0000
+[Epoch 044/10000] loss=1.1435 val_dice=0.0000 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0000 stem_dice=0.8666 check_dice=0.8543 select_dice=0.0000
+[Epoch 045/10000] loss=1.1419 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.2979 check_dice=0.8444 select_dice=0.0000
+[Epoch 046/10000] loss=1.1513 val_dice=0.0003 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0003 stem_dice=0.2504 check_dice=0.8388 select_dice=0.0001
+[Epoch 047/10000] loss=1.1397 val_dice=0.0003 val_iou=0.0001 time=2.8s lr=1.00e-03 root_dice=0.0003 stem_dice=0.4191 check_dice=0.8359 select_dice=0.0001
+[Epoch 048/10000] loss=1.1296 val_dice=0.0005 val_iou=0.0003 time=2.8s lr=1.00e-03 root_dice=0.0005 stem_dice=0.6495 check_dice=0.8256 select_dice=0.0004
+[Epoch 049/10000] loss=1.1226 val_dice=0.0004 val_iou=0.0002 time=2.7s lr=1.00e-03 root_dice=0.0004 stem_dice=0.6930 check_dice=0.8258 select_dice=0.0004
+[Epoch 050/10000] loss=1.1152 val_dice=0.0001 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0001 stem_dice=0.7002 check_dice=0.8374 select_dice=0.0001
+[Epoch 051/10000] loss=1.1116 val_dice=0.0000 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0000 stem_dice=0.7286 check_dice=0.8550 select_dice=0.0000
+[Epoch 052/10000] loss=1.1026 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.7830 check_dice=0.8550 select_dice=0.0000
+[Epoch 053/10000] loss=1.1018 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.8207 check_dice=0.8555 select_dice=0.0000
+[Epoch 054/10000] loss=1.1111 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.8406 check_dice=0.8529 select_dice=0.0000
+[Epoch 055/10000] loss=1.1001 val_dice=0.0000 val_iou=0.0000 time=2.8s lr=1.00e-03 root_dice=0.0000 stem_dice=0.8834 check_dice=0.8527 select_dice=0.0000
+[Epoch 056/10000] loss=1.0969 val_dice=0.0001 val_iou=0.0000 time=2.7s lr=1.00e-03 root_dice=0.0001 stem_dice=0.8981 check_dice=0.8503 select_dice=0.0001
+[Epoch 057/10000] loss=1.0764 val_dice=0.0003 val_iou=0.0001 time=2.7s lr=1.00e-03 root_dice=0.0003 stem_dice=0.9098 check_dice=0.8546 select_dice=0.0003
+[Epoch 058/10000] loss=1.0739 val_dice=0.0001 val_iou=0.0000 time=2.7s lr=5.00e-04 root_dice=0.0001 stem_dice=0.9151 check_dice=0.8642 select_dice=0.0001
+[学习率] 联合 Dice 连续 25 轮未提升：1.00e-03 → 5.00e-04
+[Epoch 059/10000] loss=1.0649 val_dice=0.0002 val_iou=0.0001 time=2.8s lr=5.00e-04 root_dice=0.0002 stem_dice=0.9147 check_dice=0.8639 select_dice=0.0002
+[Epoch 060/10000] loss=1.0836 val_dice=0.0002 val_iou=0.0001 time=2.8s lr=5.00e-04 root_dice=0.0002 stem_dice=0.9068 check_dice=0.8716 select_dice=0.0002
+[Epoch 061/10000] loss=1.0555 val_dice=0.0004 val_iou=0.0002 time=2.8s lr=5.00e-04 root_dice=0.0004 stem_dice=0.9044 check_dice=0.8752 select_dice=0.0004
+[Epoch 062/10000] loss=1.0742 val_dice=0.0003 val_iou=0.0001 time=2.8s lr=5.00e-04 root_dice=0.0003 stem_dice=0.9026 check_dice=0.8801 select_dice=0.0003
+[Epoch 063/10000] loss=1.0665 val_dice=0.0002 val_iou=0.0001 time=2.7s lr=5.00e-04 root_dice=0.0002 stem_dice=0.8776 check_dice=0.8765 select_dice=0.0002
+[Epoch 064/10000] loss=1.0703 val_dice=0.0003 val_iou=0.0001 time=2.9s lr=5.00e-04 root_dice=0.0003 stem_dice=0.8977 check_dice=0.8763 select_dice=0.0003
+[Epoch 065/10000] loss=1.0493 val_dice=0.0003 val_iou=0.0002 time=2.9s lr=5.00e-04 root_dice=0.0003 stem_dice=0.9056 check_dice=0.8682 select_dice=0.0003
+[Epoch 066/10000] loss=1.0544 val_dice=0.0006 val_iou=0.0003 time=2.7s lr=5.00e-04 root_dice=0.0006 stem_dice=0.8986 check_dice=0.8642 select_dice=0.0006
+[Epoch 067/10000] loss=1.0398 val_dice=0.0007 val_iou=0.0003 time=2.8s lr=5.00e-04 root_dice=0.0007 stem_dice=0.9063 check_dice=0.8585 select_dice=0.0007
+[Epoch 068/10000] loss=1.0571 val_dice=0.0009 val_iou=0.0004 time=2.8s lr=5.00e-04 root_dice=0.0009 stem_dice=0.9061 check_dice=0.8547 select_dice=0.0009
+[Epoch 069/10000] loss=1.0420 val_dice=0.0013 val_iou=0.0006 time=2.8s lr=5.00e-04 root_dice=0.0013 stem_dice=0.8721 check_dice=0.8522 select_dice=0.0013
+[Epoch 070/10000] loss=1.0596 val_dice=0.0016 val_iou=0.0008 time=2.8s lr=5.00e-04 root_dice=0.0016 stem_dice=0.8891 check_dice=0.8520 select_dice=0.0016
+[Epoch 071/10000] loss=1.0480 val_dice=0.0017 val_iou=0.0008 time=2.8s lr=5.00e-04 root_dice=0.0017 stem_dice=0.8928 check_dice=0.8530 select_dice=0.0017
+[Epoch 072/10000] loss=1.0340 val_dice=0.0020 val_iou=0.0010 time=3.4s lr=5.00e-04 root_dice=0.0020 stem_dice=0.8874 check_dice=0.8542 select_dice=0.0020 *best*
+[Epoch 073/10000] loss=1.0336 val_dice=0.0029 val_iou=0.0015 time=3.3s lr=5.00e-04 root_dice=0.0029 stem_dice=0.8833 check_dice=0.8549 select_dice=0.0029 *best*
+[Epoch 074/10000] loss=1.0260 val_dice=0.0039 val_iou=0.0019 time=3.3s lr=5.00e-04 root_dice=0.0039 stem_dice=0.9008 check_dice=0.8588 select_dice=0.0039 *best*
+[Epoch 075/10000] loss=1.0415 val_dice=0.0057 val_iou=0.0029 time=3.3s lr=5.00e-04 root_dice=0.0057 stem_dice=0.9056 check_dice=0.8671 select_dice=0.0057 *best*
+[Epoch 076/10000] loss=1.0533 val_dice=0.0072 val_iou=0.0036 time=3.4s lr=5.00e-04 root_dice=0.0072 stem_dice=0.8581 check_dice=0.8750 select_dice=0.0072 *best*
+[Epoch 077/10000] loss=1.0311 val_dice=0.0138 val_iou=0.0070 time=3.5s lr=5.00e-04 root_dice=0.0138 stem_dice=0.8241 check_dice=0.8717 select_dice=0.0138 *best*
+[Epoch 078/10000] loss=1.0285 val_dice=0.0161 val_iou=0.0082 time=3.5s lr=5.00e-04 root_dice=0.0161 stem_dice=0.7801 check_dice=0.8660 select_dice=0.0161 *best*
+[Epoch 079/10000] loss=1.0076 val_dice=0.0212 val_iou=0.0109 time=3.5s lr=5.00e-04 root_dice=0.0212 stem_dice=0.7707 check_dice=0.8618 select_dice=0.0212 *best*
+[Epoch 080/10000] loss=1.0197 val_dice=0.0316 val_iou=0.0163 time=3.5s lr=5.00e-04 root_dice=0.0316 stem_dice=0.8010 check_dice=0.8620 select_dice=0.0316 *best*
+[Epoch 081/10000] loss=1.0333 val_dice=0.0400 val_iou=0.0209 time=3.4s lr=5.00e-04 root_dice=0.0400 stem_dice=0.8523 check_dice=0.8588 select_dice=0.0400 *best*
+[Epoch 082/10000] loss=1.0051 val_dice=0.0452 val_iou=0.0240 time=3.5s lr=5.00e-04 root_dice=0.0452 stem_dice=0.9209 check_dice=0.8531 select_dice=0.0452 *best*
+[Epoch 083/10000] loss=1.0310 val_dice=0.0486 val_iou=0.0258 time=3.3s lr=5.00e-04 root_dice=0.0486 stem_dice=0.9216 check_dice=0.8602 select_dice=0.0486 *best*
+[Epoch 084/10000] loss=1.0055 val_dice=0.0568 val_iou=0.0305 time=3.3s lr=5.00e-04 root_dice=0.0568 stem_dice=0.8196 check_dice=0.8690 select_dice=0.0568 *best*
+[Epoch 085/10000] loss=1.0009 val_dice=0.0647 val_iou=0.0351 time=3.4s lr=5.00e-04 root_dice=0.0647 stem_dice=0.7328 check_dice=0.8684 select_dice=0.0633 *best*
+[Epoch 086/10000] loss=0.9875 val_dice=0.0738 val_iou=0.0403 time=3.4s lr=5.00e-04 root_dice=0.0738 stem_dice=0.7716 check_dice=0.8663 select_dice=0.0738 *best*
+[Epoch 087/10000] loss=0.9928 val_dice=0.0856 val_iou=0.0473 time=3.3s lr=5.00e-04 root_dice=0.0856 stem_dice=0.8246 check_dice=0.8611 select_dice=0.0856 *best*
+[Epoch 088/10000] loss=0.9829 val_dice=0.0983 val_iou=0.0543 time=3.4s lr=5.00e-04 root_dice=0.0983 stem_dice=0.8207 check_dice=0.8638 select_dice=0.0983 *best*
+[Epoch 089/10000] loss=0.9859 val_dice=0.1071 val_iou=0.0592 time=3.3s lr=5.00e-04 root_dice=0.1071 stem_dice=0.7584 check_dice=0.8682 select_dice=0.1071 *best*
+[Epoch 090/10000] loss=0.9994 val_dice=0.1090 val_iou=0.0602 time=3.3s lr=5.00e-04 root_dice=0.1090 stem_dice=0.7674 check_dice=0.8608 select_dice=0.1090 *best*
+[Epoch 091/10000] loss=0.9992 val_dice=0.1084 val_iou=0.0598 time=2.7s lr=5.00e-04 root_dice=0.1084 stem_dice=0.8372 check_dice=0.8593 select_dice=0.1084
+[Epoch 092/10000] loss=0.9791 val_dice=0.1198 val_iou=0.0663 time=3.4s lr=5.00e-04 root_dice=0.1198 stem_dice=0.8907 check_dice=0.8534 select_dice=0.1198 *best*
+[Epoch 093/10000] loss=0.9569 val_dice=0.1216 val_iou=0.0668 time=2.7s lr=5.00e-04 root_dice=0.1216 stem_dice=0.5776 check_dice=0.8547 select_dice=0.0937
+[Epoch 094/10000] loss=1.0167 val_dice=0.1249 val_iou=0.0686 time=2.8s lr=5.00e-04 root_dice=0.1249 stem_dice=0.7115 check_dice=0.8705 select_dice=0.1184
+[Epoch 095/10000] loss=0.9925 val_dice=0.1314 val_iou=0.0723 time=3.4s lr=5.00e-04 root_dice=0.1314 stem_dice=0.8794 check_dice=0.8741 select_dice=0.1314 *best*
+[Epoch 096/10000] loss=0.9531 val_dice=0.1343 val_iou=0.0739 time=3.3s lr=5.00e-04 root_dice=0.1343 stem_dice=0.9096 check_dice=0.8679 select_dice=0.1343 *best*
+[Epoch 097/10000] loss=0.9655 val_dice=0.1394 val_iou=0.0769 time=3.2s lr=5.00e-04 root_dice=0.1394 stem_dice=0.8974 check_dice=0.8591 select_dice=0.1394 *best*
+[Epoch 098/10000] loss=0.9528 val_dice=0.1508 val_iou=0.0834 time=3.4s lr=5.00e-04 root_dice=0.1508 stem_dice=0.9021 check_dice=0.8606 select_dice=0.1508 *best*
+[Epoch 099/10000] loss=0.9931 val_dice=0.1567 val_iou=0.0867 time=3.3s lr=5.00e-04 root_dice=0.1567 stem_dice=0.9270 check_dice=0.8589 select_dice=0.1567 *best*
+[Epoch 100/10000] loss=0.9645 val_dice=0.1652 val_iou=0.0917 time=3.2s lr=5.00e-04 root_dice=0.1652 stem_dice=0.8985 check_dice=0.8565 select_dice=0.1652 *best*
+[Epoch 101/10000] loss=0.9579 val_dice=0.1691 val_iou=0.0938 time=3.3s lr=5.00e-04 root_dice=0.1691 stem_dice=0.8824 check_dice=0.8614 select_dice=0.1691 *best*
+[Epoch 102/10000] loss=0.9533 val_dice=0.1773 val_iou=0.0988 time=2.8s lr=5.00e-04 root_dice=0.1773 stem_dice=0.0000 check_dice=0.8559 select_dice=0.0000
+[Epoch 103/10000] loss=0.9937 val_dice=0.1915 val_iou=0.1077 time=3.3s lr=5.00e-04 root_dice=0.1915 stem_dice=0.7756 check_dice=0.8696 select_dice=0.1915 *best*
+[Epoch 104/10000] loss=0.9540 val_dice=0.1826 val_iou=0.1021 time=2.8s lr=5.00e-04 root_dice=0.1826 stem_dice=0.5765 check_dice=0.8490 select_dice=0.1404
+[Epoch 105/10000] loss=0.9536 val_dice=0.1666 val_iou=0.0924 time=2.8s lr=5.00e-04 root_dice=0.1666 stem_dice=0.4984 check_dice=0.8444 select_dice=0.1107
+[Epoch 106/10000] loss=0.9696 val_dice=0.1719 val_iou=0.0955 time=2.8s lr=5.00e-04 root_dice=0.1719 stem_dice=0.5309 check_dice=0.8561 select_dice=0.1217
+[Epoch 107/10000] loss=0.9572 val_dice=0.1859 val_iou=0.1040 time=2.8s lr=5.00e-04 root_dice=0.1859 stem_dice=0.2912 check_dice=0.8444 select_dice=0.0722
+[Epoch 108/10000] loss=0.9487 val_dice=0.2008 val_iou=0.1130 time=2.7s lr=5.00e-04 root_dice=0.2008 stem_dice=0.2126 check_dice=0.8443 select_dice=0.0569
+[Epoch 109/10000] loss=0.9559 val_dice=0.1979 val_iou=0.1114 time=2.7s lr=5.00e-04 root_dice=0.1979 stem_dice=0.2098 check_dice=0.8501 select_dice=0.0554
+[Epoch 110/10000] loss=0.9431 val_dice=0.1877 val_iou=0.1053 time=2.7s lr=5.00e-04 root_dice=0.1877 stem_dice=0.5038 check_dice=0.8707 select_dice=0.1261
+[Epoch 111/10000] loss=0.9237 val_dice=0.1886 val_iou=0.1057 time=2.7s lr=5.00e-04 root_dice=0.1886 stem_dice=0.7200 check_dice=0.8700 select_dice=0.1811
+[Epoch 112/10000] loss=0.9339 val_dice=0.1962 val_iou=0.1102 time=3.1s lr=5.00e-04 root_dice=0.1962 stem_dice=0.8413 check_dice=0.8643 select_dice=0.1962 *best*
+[Epoch 113/10000] loss=0.9343 val_dice=0.2032 val_iou=0.1143 time=2.7s lr=5.00e-04 root_dice=0.2032 stem_dice=0.6866 check_dice=0.8714 select_dice=0.1860
+[Epoch 114/10000] loss=0.9362 val_dice=0.2155 val_iou=0.1217 time=2.8s lr=5.00e-04 root_dice=0.2155 stem_dice=0.5263 check_dice=0.8633 select_dice=0.1512
+[Epoch 115/10000] loss=0.9093 val_dice=0.2215 val_iou=0.1255 time=2.8s lr=5.00e-04 root_dice=0.2215 stem_dice=0.3668 check_dice=0.8549 select_dice=0.1083
+[Epoch 116/10000] loss=0.9337 val_dice=0.2164 val_iou=0.1224 time=2.8s lr=5.00e-04 root_dice=0.2164 stem_dice=0.3767 check_dice=0.8526 select_dice=0.1087
+[Epoch 117/10000] loss=0.9150 val_dice=0.1994 val_iou=0.1117 time=2.8s lr=5.00e-04 root_dice=0.1994 stem_dice=0.4812 check_dice=0.8563 select_dice=0.1279
+[Epoch 118/10000] loss=0.9304 val_dice=0.1868 val_iou=0.1040 time=2.7s lr=5.00e-04 root_dice=0.1868 stem_dice=0.6480 check_dice=0.8688 select_dice=0.1614
+[Epoch 119/10000] loss=0.9130 val_dice=0.1903 val_iou=0.1060 time=2.8s lr=5.00e-04 root_dice=0.1903 stem_dice=0.7072 check_dice=0.8755 select_dice=0.1794
+[Epoch 120/10000] loss=0.9292 val_dice=0.1967 val_iou=0.1101 time=2.8s lr=5.00e-04 root_dice=0.1967 stem_dice=0.7389 check_dice=0.8966 select_dice=0.1938
+[Epoch 121/10000] loss=0.9130 val_dice=0.1826 val_iou=0.1014 time=2.8s lr=5.00e-04 root_dice=0.1826 stem_dice=0.7272 check_dice=0.9072 select_dice=0.1770
+[Epoch 122/10000] loss=0.9055 val_dice=0.1881 val_iou=0.1048 time=2.8s lr=5.00e-04 root_dice=0.1881 stem_dice=0.7611 check_dice=0.9060 select_dice=0.1881
+[Epoch 123/10000] loss=0.9099 val_dice=0.1838 val_iou=0.1021 time=2.8s lr=5.00e-04 root_dice=0.1838 stem_dice=0.8072 check_dice=0.8928 select_dice=0.1838
+[Epoch 124/10000] loss=0.9161 val_dice=0.1921 val_iou=0.1072 time=2.8s lr=5.00e-04 root_dice=0.1921 stem_dice=0.8978 check_dice=0.8844 select_dice=0.1921
+[Epoch 125/10000] loss=0.9241 val_dice=0.1930 val_iou=0.1077 time=2.8s lr=5.00e-04 root_dice=0.1930 stem_dice=0.9298 check_dice=0.8858 select_dice=0.1930
+[Epoch 126/10000] loss=0.9299 val_dice=0.2018 val_iou=0.1131 time=3.3s lr=5.00e-04 root_dice=0.2018 stem_dice=0.8845 check_dice=0.8817 select_dice=0.2018 *best*
+[Epoch 127/10000] loss=0.8867 val_dice=0.2167 val_iou=0.1226 time=3.3s lr=5.00e-04 root_dice=0.2167 stem_dice=0.7823 check_dice=0.8800 select_dice=0.2167 *best*
+[Epoch 128/10000] loss=0.8973 val_dice=0.2310 val_iou=0.1316 time=2.8s lr=5.00e-04 root_dice=0.2310 stem_dice=0.5522 check_dice=0.8739 select_dice=0.1701
+[Epoch 129/10000] loss=0.8859 val_dice=0.2221 val_iou=0.1257 time=2.8s lr=5.00e-04 root_dice=0.2221 stem_dice=0.5591 check_dice=0.8770 select_dice=0.1656
+[Epoch 130/10000] loss=0.9047 val_dice=0.2093 val_iou=0.1176 time=2.9s lr=5.00e-04 root_dice=0.2093 stem_dice=0.7050 check_dice=0.8728 select_dice=0.1967
+[Epoch 131/10000] loss=0.8641 val_dice=0.2024 val_iou=0.1132 time=3.0s lr=5.00e-04 root_dice=0.2024 stem_dice=0.8072 check_dice=0.8601 select_dice=0.2024
+[Epoch 132/10000] loss=0.8661 val_dice=0.1993 val_iou=0.1113 time=2.9s lr=5.00e-04 root_dice=0.1993 stem_dice=0.8976 check_dice=0.8405 select_dice=0.1993
+[Epoch 133/10000] loss=0.8756 val_dice=0.2014 val_iou=0.1125 time=2.8s lr=5.00e-04 root_dice=0.2014 stem_dice=0.9209 check_dice=0.8439 select_dice=0.2014
+[Epoch 134/10000] loss=0.9117 val_dice=0.2202 val_iou=0.1243 time=3.3s lr=5.00e-04 root_dice=0.2202 stem_dice=0.8869 check_dice=0.8590 select_dice=0.2202 *best*
+[Epoch 135/10000] loss=0.8575 val_dice=0.2432 val_iou=0.1392 time=3.4s lr=5.00e-04 root_dice=0.2432 stem_dice=0.8240 check_dice=0.8698 select_dice=0.2432 *best*
+[Epoch 136/10000] loss=0.8493 val_dice=0.2672 val_iou=0.1548 time=3.1s lr=5.00e-04 root_dice=0.2672 stem_dice=0.8260 check_dice=0.8762 select_dice=0.2672 *best*
+[Epoch 137/10000] loss=0.8849 val_dice=0.2740 val_iou=0.1592 time=3.2s lr=5.00e-04 root_dice=0.2740 stem_dice=0.8441 check_dice=0.8684 select_dice=0.2740 *best*
+[Epoch 138/10000] loss=0.8473 val_dice=0.2599 val_iou=0.1501 time=2.8s lr=5.00e-04 root_dice=0.2599 stem_dice=0.8550 check_dice=0.8508 select_dice=0.2599
+[Epoch 139/10000] loss=0.9243 val_dice=0.2303 val_iou=0.1310 time=2.7s lr=5.00e-04 root_dice=0.2303 stem_dice=0.8593 check_dice=0.8581 select_dice=0.2303
+[Epoch 140/10000] loss=0.8477 val_dice=0.1974 val_iou=0.1103 time=2.7s lr=5.00e-04 root_dice=0.1974 stem_dice=0.8382 check_dice=0.8462 select_dice=0.1974
+[Epoch 141/10000] loss=0.8386 val_dice=0.1931 val_iou=0.1075 time=2.8s lr=5.00e-04 root_dice=0.1931 stem_dice=0.7849 check_dice=0.8345 select_dice=0.1931
+[Epoch 142/10000] loss=0.8665 val_dice=0.2340 val_iou=0.1333 time=2.8s lr=5.00e-04 root_dice=0.2340 stem_dice=0.7768 check_dice=0.8356 select_dice=0.2340
+[Epoch 143/10000] loss=0.8248 val_dice=0.2542 val_iou=0.1463 time=2.7s lr=5.00e-04 root_dice=0.2542 stem_dice=0.8239 check_dice=0.8394 select_dice=0.2542
+[Epoch 144/10000] loss=0.8569 val_dice=0.2156 val_iou=0.1216 time=2.7s lr=5.00e-04 root_dice=0.2156 stem_dice=0.9044 check_dice=0.8706 select_dice=0.2156
+[Epoch 145/10000] loss=0.7803 val_dice=0.2409 val_iou=0.1376 time=2.7s lr=5.00e-04 root_dice=0.2409 stem_dice=0.9101 check_dice=0.8770 select_dice=0.2409
+[Epoch 146/10000] loss=0.8499 val_dice=0.2803 val_iou=0.1637 time=3.3s lr=5.00e-04 root_dice=0.2803 stem_dice=0.8947 check_dice=0.8834 select_dice=0.2803 *best*
+[Epoch 147/10000] loss=0.8513 val_dice=0.2841 val_iou=0.1662 time=3.3s lr=5.00e-04 root_dice=0.2841 stem_dice=0.8940 check_dice=0.9037 select_dice=0.2841 *best*
+[Epoch 148/10000] loss=0.8149 val_dice=0.2800 val_iou=0.1635 time=2.7s lr=5.00e-04 root_dice=0.2800 stem_dice=0.9248 check_dice=0.9051 select_dice=0.2800
+[Epoch 149/10000] loss=0.8039 val_dice=0.2633 val_iou=0.1524 time=2.8s lr=5.00e-04 root_dice=0.2633 stem_dice=0.9165 check_dice=0.9142 select_dice=0.2633
+[Epoch 150/10000] loss=0.8259 val_dice=0.2677 val_iou=0.1555 time=2.8s lr=5.00e-04 root_dice=0.2677 stem_dice=0.9215 check_dice=0.8882 select_dice=0.2677
+[Epoch 151/10000] loss=0.7945 val_dice=0.2837 val_iou=0.1662 time=2.8s lr=5.00e-04 root_dice=0.2837 stem_dice=0.7625 check_dice=0.8617 select_dice=0.2837
+[Epoch 152/10000] loss=0.7992 val_dice=0.2687 val_iou=0.1561 time=2.7s lr=5.00e-04 root_dice=0.2687 stem_dice=0.7967 check_dice=0.8554 select_dice=0.2687
+[Epoch 153/10000] loss=0.7931 val_dice=0.2765 val_iou=0.1612 time=2.8s lr=5.00e-04 root_dice=0.2765 stem_dice=0.5048 check_dice=0.8497 select_dice=0.1861
+[Epoch 154/10000] loss=0.8002 val_dice=0.2901 val_iou=0.1704 time=3.4s lr=5.00e-04 root_dice=0.2901 stem_dice=0.8507 check_dice=0.8667 select_dice=0.2901 *best*
+[Epoch 155/10000] loss=0.8107 val_dice=0.3148 val_iou=0.1873 time=3.3s lr=5.00e-04 root_dice=0.3148 stem_dice=0.8790 check_dice=0.8987 select_dice=0.3148 *best*
+[Epoch 156/10000] loss=0.7799 val_dice=0.3140 val_iou=0.1870 time=2.7s lr=5.00e-04 root_dice=0.3140 stem_dice=0.7188 check_dice=0.8603 select_dice=0.3010
+[Epoch 157/10000] loss=0.8301 val_dice=0.2369 val_iou=0.1354 time=2.8s lr=5.00e-04 root_dice=0.2369 stem_dice=0.8911 check_dice=0.8596 select_dice=0.2369
+[Epoch 158/10000] loss=0.7940 val_dice=0.1807 val_iou=0.1002 time=2.8s lr=5.00e-04 root_dice=0.1807 stem_dice=0.8356 check_dice=0.8639 select_dice=0.1807
+[Epoch 159/10000] loss=0.7898 val_dice=0.2319 val_iou=0.1318 time=2.8s lr=5.00e-04 root_dice=0.2319 stem_dice=0.7804 check_dice=0.9011 select_dice=0.2319
+[Epoch 160/10000] loss=0.7933 val_dice=0.2856 val_iou=0.1671 time=2.8s lr=5.00e-04 root_dice=0.2856 stem_dice=0.8034 check_dice=0.9020 select_dice=0.2856
+[Epoch 161/10000] loss=0.7760 val_dice=0.2990 val_iou=0.1763 time=2.7s lr=5.00e-04 root_dice=0.2990 stem_dice=0.8721 check_dice=0.8984 select_dice=0.2990
+[Epoch 162/10000] loss=0.7639 val_dice=0.2832 val_iou=0.1658 time=2.8s lr=5.00e-04 root_dice=0.2832 stem_dice=0.9114 check_dice=0.8547 select_dice=0.2832
+[Epoch 163/10000] loss=0.8038 val_dice=0.2460 val_iou=0.1413 time=2.7s lr=5.00e-04 root_dice=0.2460 stem_dice=0.8721 check_dice=0.8414 select_dice=0.2460
+[Epoch 164/10000] loss=0.7509 val_dice=0.2510 val_iou=0.1443 time=2.8s lr=5.00e-04 root_dice=0.2510 stem_dice=0.8621 check_dice=0.8369 select_dice=0.2510
+[Epoch 165/10000] loss=0.8381 val_dice=0.2369 val_iou=0.1351 time=2.7s lr=5.00e-04 root_dice=0.2369 stem_dice=0.8717 check_dice=0.8332 select_dice=0.2369
+[Epoch 166/10000] loss=0.7948 val_dice=0.2910 val_iou=0.1712 time=2.8s lr=5.00e-04 root_dice=0.2910 stem_dice=0.8527 check_dice=0.8209 select_dice=0.2910
+[Epoch 167/10000] loss=0.7505 val_dice=0.3114 val_iou=0.1854 time=2.7s lr=5.00e-04 root_dice=0.3114 stem_dice=0.8953 check_dice=0.8182 select_dice=0.3114
+[Epoch 168/10000] loss=0.7587 val_dice=0.3113 val_iou=0.1853 time=2.8s lr=5.00e-04 root_dice=0.3113 stem_dice=0.9121 check_dice=0.8196 select_dice=0.3113
+[Epoch 169/10000] loss=0.7584 val_dice=0.3213 val_iou=0.1921 time=3.3s lr=5.00e-04 root_dice=0.3213 stem_dice=0.7838 check_dice=0.8799 select_dice=0.3213 *best*
+[Epoch 170/10000] loss=0.7650 val_dice=0.3146 val_iou=0.1873 time=2.7s lr=5.00e-04 root_dice=0.3146 stem_dice=0.9210 check_dice=0.8952 select_dice=0.3146
+[Epoch 171/10000] loss=0.7442 val_dice=0.3017 val_iou=0.1784 time=2.8s lr=5.00e-04 root_dice=0.3017 stem_dice=0.8976 check_dice=0.8787 select_dice=0.3017
+[Epoch 172/10000] loss=0.7429 val_dice=0.2991 val_iou=0.1767 time=2.8s lr=5.00e-04 root_dice=0.2991 stem_dice=0.8655 check_dice=0.8773 select_dice=0.2991
+[Epoch 173/10000] loss=0.7342 val_dice=0.2820 val_iou=0.1650 time=2.8s lr=5.00e-04 root_dice=0.2820 stem_dice=0.8681 check_dice=0.8627 select_dice=0.2820
+[Epoch 174/10000] loss=0.7721 val_dice=0.2764 val_iou=0.1613 time=2.8s lr=5.00e-04 root_dice=0.2764 stem_dice=0.9037 check_dice=0.8656 select_dice=0.2764
+[Epoch 175/10000] loss=0.7517 val_dice=0.3017 val_iou=0.1785 time=2.8s lr=5.00e-04 root_dice=0.3017 stem_dice=0.9145 check_dice=0.8389 select_dice=0.3017
+[Epoch 176/10000] loss=0.7458 val_dice=0.2665 val_iou=0.1545 time=2.7s lr=5.00e-04 root_dice=0.2665 stem_dice=0.9178 check_dice=0.8553 select_dice=0.2665
+[Epoch 177/10000] loss=0.7604 val_dice=0.2706 val_iou=0.1571 time=2.7s lr=5.00e-04 root_dice=0.2706 stem_dice=0.8916 check_dice=0.8800 select_dice=0.2706
+[Epoch 178/10000] loss=0.7114 val_dice=0.2940 val_iou=0.1730 time=2.9s lr=5.00e-04 root_dice=0.2940 stem_dice=0.8960 check_dice=0.8753 select_dice=0.2940
+[Epoch 179/10000] loss=0.7241 val_dice=0.2979 val_iou=0.1761 time=2.9s lr=5.00e-04 root_dice=0.2979 stem_dice=0.8701 check_dice=0.8755 select_dice=0.2979
+[Epoch 180/10000] loss=0.7363 val_dice=0.2932 val_iou=0.1733 time=2.9s lr=5.00e-04 root_dice=0.2932 stem_dice=0.8510 check_dice=0.8612 select_dice=0.2932
+[Epoch 181/10000] loss=0.7404 val_dice=0.3159 val_iou=0.1890 time=2.9s lr=5.00e-04 root_dice=0.3159 stem_dice=0.8624 check_dice=0.8741 select_dice=0.3159
+[Epoch 182/10000] loss=0.6977 val_dice=0.3274 val_iou=0.1972 time=3.5s lr=5.00e-04 root_dice=0.3274 stem_dice=0.9163 check_dice=0.8762 select_dice=0.3274 *best*
+[Epoch 183/10000] loss=0.7535 val_dice=0.3357 val_iou=0.2027 time=3.5s lr=5.00e-04 root_dice=0.3357 stem_dice=0.8139 check_dice=0.9002 select_dice=0.3357 *best*
+[Epoch 184/10000] loss=0.7010 val_dice=0.2795 val_iou=0.1630 time=2.8s lr=5.00e-04 root_dice=0.2795 stem_dice=0.7131 check_dice=0.9070 select_dice=0.2657
+[Epoch 185/10000] loss=0.7535 val_dice=0.1490 val_iou=0.0810 time=2.7s lr=5.00e-04 root_dice=0.1490 stem_dice=0.7274 check_dice=0.8738 select_dice=0.1446
+[Epoch 186/10000] loss=0.6946 val_dice=0.1096 val_iou=0.0585 time=2.8s lr=5.00e-04 root_dice=0.1096 stem_dice=0.7929 check_dice=0.8493 select_dice=0.1096
+[Epoch 187/10000] loss=0.6798 val_dice=0.1805 val_iou=0.1003 time=2.7s lr=5.00e-04 root_dice=0.1805 stem_dice=0.8442 check_dice=0.8512 select_dice=0.1805
+[Epoch 188/10000] loss=0.7293 val_dice=0.2260 val_iou=0.1284 time=2.8s lr=5.00e-04 root_dice=0.2260 stem_dice=0.8714 check_dice=0.8428 select_dice=0.2260
+[Epoch 189/10000] loss=0.7421 val_dice=0.2598 val_iou=0.1502 time=2.8s lr=5.00e-04 root_dice=0.2598 stem_dice=0.8742 check_dice=0.8535 select_dice=0.2598
+[Epoch 190/10000] loss=0.7147 val_dice=0.2985 val_iou=0.1764 time=2.7s lr=5.00e-04 root_dice=0.2985 stem_dice=0.8642 check_dice=0.8764 select_dice=0.2985
+[Epoch 191/10000] loss=0.6903 val_dice=0.3205 val_iou=0.1917 time=2.7s lr=5.00e-04 root_dice=0.3205 stem_dice=0.8525 check_dice=0.8941 select_dice=0.3205
+[Epoch 192/10000] loss=0.6998 val_dice=0.3214 val_iou=0.1922 time=2.8s lr=5.00e-04 root_dice=0.3214 stem_dice=0.8700 check_dice=0.8947 select_dice=0.3214
+[Epoch 193/10000] loss=0.6965 val_dice=0.3110 val_iou=0.1849 time=2.8s lr=5.00e-04 root_dice=0.3110 stem_dice=0.8753 check_dice=0.8839 select_dice=0.3110
+[Epoch 194/10000] loss=0.7243 val_dice=0.3141 val_iou=0.1871 time=2.7s lr=5.00e-04 root_dice=0.3141 stem_dice=0.8756 check_dice=0.8896 select_dice=0.3141
+[Epoch 195/10000] loss=0.6953 val_dice=0.3297 val_iou=0.1980 time=2.7s lr=5.00e-04 root_dice=0.3297 stem_dice=0.8701 check_dice=0.9126 select_dice=0.3297
+[Epoch 196/10000] loss=0.6923 val_dice=0.3330 val_iou=0.2003 time=2.7s lr=5.00e-04 root_dice=0.3330 stem_dice=0.8640 check_dice=0.9298 select_dice=0.3330
+[Epoch 197/10000] loss=0.7073 val_dice=0.3451 val_iou=0.2089 time=3.4s lr=5.00e-04 root_dice=0.3451 stem_dice=0.8664 check_dice=0.9337 select_dice=0.3451 *best*
+[Epoch 198/10000] loss=0.6590 val_dice=0.3520 val_iou=0.2139 time=3.4s lr=5.00e-04 root_dice=0.3520 stem_dice=0.9015 check_dice=0.9300 select_dice=0.3520 *best*
+[Epoch 199/10000] loss=0.6582 val_dice=0.3239 val_iou=0.1938 time=3.0s lr=5.00e-04 root_dice=0.3239 stem_dice=0.9125 check_dice=0.9247 select_dice=0.3239
+[Epoch 200/10000] loss=0.6575 val_dice=0.3312 val_iou=0.1992 time=3.0s lr=5.00e-04 root_dice=0.3312 stem_dice=0.9252 check_dice=0.9091 select_dice=0.3312
+[Epoch 201/10000] loss=0.6801 val_dice=0.3504 val_iou=0.2130 time=2.9s lr=5.00e-04 root_dice=0.3504 stem_dice=0.8721 check_dice=0.8917 select_dice=0.3504
+[Epoch 202/10000] loss=0.7015 val_dice=0.3526 val_iou=0.2146 time=3.5s lr=5.00e-04 root_dice=0.3526 stem_dice=0.8687 check_dice=0.8705 select_dice=0.3526 *best*
+[Epoch 203/10000] loss=0.6447 val_dice=0.3447 val_iou=0.2088 time=2.9s lr=5.00e-04 root_dice=0.3447 stem_dice=0.8520 check_dice=0.8586 select_dice=0.3447
+[Epoch 204/10000] loss=0.6269 val_dice=0.3303 val_iou=0.1985 time=3.0s lr=5.00e-04 root_dice=0.3303 stem_dice=0.9226 check_dice=0.8430 select_dice=0.3303
+[Epoch 205/10000] loss=0.6611 val_dice=0.3105 val_iou=0.1846 time=2.9s lr=5.00e-04 root_dice=0.3105 stem_dice=0.8904 check_dice=0.8579 select_dice=0.3105
+[Epoch 206/10000] loss=0.6577 val_dice=0.3121 val_iou=0.1857 time=3.0s lr=5.00e-04 root_dice=0.3121 stem_dice=0.8976 check_dice=0.8671 select_dice=0.3121
+[Epoch 207/10000] loss=0.6566 val_dice=0.3259 val_iou=0.1953 time=2.9s lr=5.00e-04 root_dice=0.3259 stem_dice=0.9257 check_dice=0.8852 select_dice=0.3259
+[Epoch 208/10000] loss=0.6414 val_dice=0.3322 val_iou=0.1997 time=3.0s lr=5.00e-04 root_dice=0.3322 stem_dice=0.7128 check_dice=0.8800 select_dice=0.3157
+[Epoch 209/10000] loss=0.6351 val_dice=0.3198 val_iou=0.1909 time=3.0s lr=5.00e-04 root_dice=0.3198 stem_dice=0.9031 check_dice=0.8998 select_dice=0.3198
+[Epoch 210/10000] loss=0.6328 val_dice=0.3151 val_iou=0.1878 time=2.8s lr=5.00e-04 root_dice=0.3151 stem_dice=0.9248 check_dice=0.9103 select_dice=0.3151
+[Epoch 211/10000] loss=0.6534 val_dice=0.3306 val_iou=0.1990 time=2.7s lr=5.00e-04 root_dice=0.3306 stem_dice=0.9093 check_dice=0.9175 select_dice=0.3306
+[Epoch 212/10000] loss=0.6793 val_dice=0.3348 val_iou=0.2021 time=2.8s lr=5.00e-04 root_dice=0.3348 stem_dice=0.9001 check_dice=0.8945 select_dice=0.3348
+[Epoch 213/10000] loss=0.6195 val_dice=0.3114 val_iou=0.1854 time=2.8s lr=5.00e-04 root_dice=0.3114 stem_dice=0.9148 check_dice=0.8543 select_dice=0.3114
+[Epoch 214/10000] loss=0.6052 val_dice=0.2816 val_iou=0.1646 time=2.8s lr=5.00e-04 root_dice=0.2816 stem_dice=0.9142 check_dice=0.8442 select_dice=0.2816
+[Epoch 215/10000] loss=0.6159 val_dice=0.2559 val_iou=0.1471 time=3.0s lr=5.00e-04 root_dice=0.2559 stem_dice=0.8913 check_dice=0.8553 select_dice=0.2559
+[Epoch 216/10000] loss=0.6208 val_dice=0.3073 val_iou=0.1825 time=2.9s lr=5.00e-04 root_dice=0.3073 stem_dice=0.9342 check_dice=0.8495 select_dice=0.3073
+[Epoch 217/10000] loss=0.6451 val_dice=0.3588 val_iou=0.2194 time=3.5s lr=5.00e-04 root_dice=0.3588 stem_dice=0.8999 check_dice=0.8812 select_dice=0.3588 *best*
+[Epoch 218/10000] loss=0.5853 val_dice=0.3652 val_iou=0.2241 time=3.3s lr=5.00e-04 root_dice=0.3652 stem_dice=0.8848 check_dice=0.8809 select_dice=0.3652 *best*
+[Epoch 219/10000] loss=0.6082 val_dice=0.3408 val_iou=0.2063 time=2.8s lr=5.00e-04 root_dice=0.3408 stem_dice=0.8416 check_dice=0.8562 select_dice=0.3408
+[Epoch 220/10000] loss=0.5910 val_dice=0.2860 val_iou=0.1676 time=2.8s lr=5.00e-04 root_dice=0.2860 stem_dice=0.8847 check_dice=0.8566 select_dice=0.2860
+[Epoch 221/10000] loss=0.6132 val_dice=0.2937 val_iou=0.1730 time=2.8s lr=5.00e-04 root_dice=0.2937 stem_dice=0.9282 check_dice=0.8651 select_dice=0.2937
+[Epoch 222/10000] loss=0.6268 val_dice=0.3238 val_iou=0.1941 time=2.8s lr=5.00e-04 root_dice=0.3238 stem_dice=0.9281 check_dice=0.8575 select_dice=0.3238
+[Epoch 223/10000] loss=0.6229 val_dice=0.3589 val_iou=0.2194 time=2.9s lr=5.00e-04 root_dice=0.3589 stem_dice=0.8258 check_dice=0.8479 select_dice=0.3589
+[Epoch 224/10000] loss=0.5827 val_dice=0.3430 val_iou=0.2076 time=2.9s lr=5.00e-04 root_dice=0.3430 stem_dice=0.7545 check_dice=0.8513 select_dice=0.3430
+[Epoch 225/10000] loss=0.6049 val_dice=0.3344 val_iou=0.2013 time=2.8s lr=5.00e-04 root_dice=0.3344 stem_dice=0.7523 check_dice=0.8604 select_dice=0.3344
+[Epoch 226/10000] loss=0.6392 val_dice=0.3405 val_iou=0.2058 time=2.8s lr=5.00e-04 root_dice=0.3405 stem_dice=0.7689 check_dice=0.8801 select_dice=0.3405
+[Epoch 227/10000] loss=0.6156 val_dice=0.3525 val_iou=0.2149 time=2.8s lr=5.00e-04 root_dice=0.3525 stem_dice=0.8564 check_dice=0.8836 select_dice=0.3525
+[Epoch 228/10000] loss=0.6825 val_dice=0.3593 val_iou=0.2201 time=2.8s lr=5.00e-04 root_dice=0.3593 stem_dice=0.8892 check_dice=0.8828 select_dice=0.3593
+[Epoch 229/10000] loss=0.6163 val_dice=0.3495 val_iou=0.2137 time=3.0s lr=5.00e-04 root_dice=0.3495 stem_dice=0.8733 check_dice=0.8618 select_dice=0.3495
+[Epoch 230/10000] loss=0.6178 val_dice=0.3427 val_iou=0.2078 time=2.8s lr=5.00e-04 root_dice=0.3427 stem_dice=0.8255 check_dice=0.9020 select_dice=0.3427
+[Epoch 231/10000] loss=0.5914 val_dice=0.3349 val_iou=0.2020 time=2.8s lr=5.00e-04 root_dice=0.3349 stem_dice=0.8423 check_dice=0.9161 select_dice=0.3349
+[Epoch 232/10000] loss=0.6237 val_dice=0.3190 val_iou=0.1910 time=2.8s lr=5.00e-04 root_dice=0.3190 stem_dice=0.8559 check_dice=0.8767 select_dice=0.3190
+[Epoch 233/10000] loss=0.6091 val_dice=0.3206 val_iou=0.1924 time=2.8s lr=5.00e-04 root_dice=0.3206 stem_dice=0.8827 check_dice=0.8519 select_dice=0.3206
+[Epoch 234/10000] loss=0.5738 val_dice=0.3382 val_iou=0.2055 time=2.8s lr=5.00e-04 root_dice=0.3382 stem_dice=0.8891 check_dice=0.8446 select_dice=0.3382
+[Epoch 235/10000] loss=0.6037 val_dice=0.3397 val_iou=0.2068 time=2.8s lr=5.00e-04 root_dice=0.3397 stem_dice=0.8654 check_dice=0.8469 select_dice=0.3397
+[Epoch 236/10000] loss=0.5996 val_dice=0.3365 val_iou=0.2041 time=2.8s lr=5.00e-04 root_dice=0.3365 stem_dice=0.8534 check_dice=0.8462 select_dice=0.3365
+[Epoch 237/10000] loss=0.6034 val_dice=0.3401 val_iou=0.2058 time=2.8s lr=5.00e-04 root_dice=0.3401 stem_dice=0.8781 check_dice=0.8810 select_dice=0.3401
+[Epoch 238/10000] loss=0.6131 val_dice=0.3437 val_iou=0.2082 time=2.8s lr=5.00e-04 root_dice=0.3437 stem_dice=0.9052 check_dice=0.9026 select_dice=0.3437
+[Epoch 239/10000] loss=0.6030 val_dice=0.3486 val_iou=0.2117 time=2.8s lr=5.00e-04 root_dice=0.3486 stem_dice=0.9095 check_dice=0.9047 select_dice=0.3486
+[Epoch 240/10000] loss=0.5479 val_dice=0.3601 val_iou=0.2202 time=2.8s lr=5.00e-04 root_dice=0.3601 stem_dice=0.8590 check_dice=0.8873 select_dice=0.3601
+[Epoch 241/10000] loss=0.5959 val_dice=0.3655 val_iou=0.2241 time=2.8s lr=5.00e-04 root_dice=0.3655 stem_dice=0.4933 check_dice=0.8996 select_dice=0.2404
+[Epoch 242/10000] loss=0.5665 val_dice=0.3425 val_iou=0.2072 time=2.8s lr=5.00e-04 root_dice=0.3425 stem_dice=0.7394 check_dice=0.9016 select_dice=0.3376
+[Epoch 243/10000] loss=0.5536 val_dice=0.2596 val_iou=0.1496 time=2.8s lr=5.00e-04 root_dice=0.2596 stem_dice=0.8860 check_dice=0.8818 select_dice=0.2596
+[Epoch 244/10000] loss=0.5853 val_dice=0.2149 val_iou=0.1209 time=2.8s lr=2.50e-04 root_dice=0.2149 stem_dice=0.8929 check_dice=0.8881 select_dice=0.2149
+[学习率] 联合 Dice 连续 25 轮未提升：5.00e-04 → 2.50e-04
+[Epoch 245/10000] loss=0.5971 val_dice=0.2801 val_iou=0.1632 time=2.7s lr=2.50e-04 root_dice=0.2801 stem_dice=0.8699 check_dice=0.9015 select_dice=0.2801
+[Epoch 246/10000] loss=0.5768 val_dice=0.3354 val_iou=0.2020 time=2.7s lr=2.50e-04 root_dice=0.3354 stem_dice=0.8670 check_dice=0.9063 select_dice=0.3354
+[Epoch 247/10000] loss=0.5509 val_dice=0.3520 val_iou=0.2147 time=2.8s lr=2.50e-04 root_dice=0.3520 stem_dice=0.8664 check_dice=0.8861 select_dice=0.3520
+[Epoch 248/10000] loss=0.5118 val_dice=0.3523 val_iou=0.2150 time=2.8s lr=2.50e-04 root_dice=0.3523 stem_dice=0.8860 check_dice=0.8772 select_dice=0.3523
+[Epoch 249/10000] loss=0.5456 val_dice=0.3506 val_iou=0.2137 time=2.8s lr=2.50e-04 root_dice=0.3506 stem_dice=0.9101 check_dice=0.8871 select_dice=0.3506
+[Epoch 250/10000] loss=0.5586 val_dice=0.3449 val_iou=0.2098 time=2.8s lr=2.50e-04 root_dice=0.3449 stem_dice=0.9270 check_dice=0.8778 select_dice=0.3449
+[Epoch 251/10000] loss=0.5351 val_dice=0.3400 val_iou=0.2063 time=2.8s lr=2.50e-04 root_dice=0.3400 stem_dice=0.9320 check_dice=0.8748 select_dice=0.3400
+[Epoch 252/10000] loss=0.5412 val_dice=0.3448 val_iou=0.2096 time=2.8s lr=2.50e-04 root_dice=0.3448 stem_dice=0.9088 check_dice=0.8892 select_dice=0.3448
+[Epoch 253/10000] loss=0.5357 val_dice=0.3464 val_iou=0.2111 time=2.7s lr=2.50e-04 root_dice=0.3464 stem_dice=0.9293 check_dice=0.8850 select_dice=0.3464
+[Epoch 254/10000] loss=0.5503 val_dice=0.3475 val_iou=0.2117 time=2.7s lr=2.50e-04 root_dice=0.3475 stem_dice=0.9194 check_dice=0.9211 select_dice=0.3475
+[Epoch 255/10000] loss=0.5901 val_dice=0.3566 val_iou=0.2181 time=2.7s lr=2.50e-04 root_dice=0.3566 stem_dice=0.8896 check_dice=0.9265 select_dice=0.3566
+[Epoch 256/10000] loss=0.5702 val_dice=0.3585 val_iou=0.2195 time=2.8s lr=2.50e-04 root_dice=0.3585 stem_dice=0.8683 check_dice=0.9173 select_dice=0.3585
+[Epoch 257/10000] loss=0.5130 val_dice=0.3546 val_iou=0.2169 time=2.8s lr=2.50e-04 root_dice=0.3546 stem_dice=0.8886 check_dice=0.8883 select_dice=0.3546
+[Epoch 258/10000] loss=0.5520 val_dice=0.3548 val_iou=0.2171 time=2.8s lr=2.50e-04 root_dice=0.3548 stem_dice=0.8923 check_dice=0.8841 select_dice=0.3548
+[Epoch 259/10000] loss=0.5942 val_dice=0.3528 val_iou=0.2156 time=2.8s lr=2.50e-04 root_dice=0.3528 stem_dice=0.9126 check_dice=0.8812 select_dice=0.3528
+[Epoch 260/10000] loss=0.5121 val_dice=0.3481 val_iou=0.2120 time=2.8s lr=2.50e-04 root_dice=0.3481 stem_dice=0.9194 check_dice=0.8967 select_dice=0.3481
+[Epoch 261/10000] loss=0.5690 val_dice=0.3361 val_iou=0.2031 time=2.8s lr=2.50e-04 root_dice=0.3361 stem_dice=0.9154 check_dice=0.8977 select_dice=0.3361
+[Epoch 262/10000] loss=0.5201 val_dice=0.3284 val_iou=0.1975 time=2.7s lr=2.50e-04 root_dice=0.3284 stem_dice=0.9179 check_dice=0.8892 select_dice=0.3284
+[Epoch 263/10000] loss=0.5850 val_dice=0.3537 val_iou=0.2159 time=2.7s lr=2.50e-04 root_dice=0.3537 stem_dice=0.9269 check_dice=0.9080 select_dice=0.3537
+[Epoch 264/10000] loss=0.5324 val_dice=0.3651 val_iou=0.2244 time=2.8s lr=2.50e-04 root_dice=0.3651 stem_dice=0.9326 check_dice=0.9107 select_dice=0.3651
+[Epoch 265/10000] loss=0.5577 val_dice=0.3654 val_iou=0.2245 time=3.3s lr=2.50e-04 root_dice=0.3654 stem_dice=0.9166 check_dice=0.9094 select_dice=0.3654 *best*
+[Epoch 266/10000] loss=0.5159 val_dice=0.3555 val_iou=0.2173 time=2.7s lr=2.50e-04 root_dice=0.3555 stem_dice=0.9075 check_dice=0.8989 select_dice=0.3555
+[Epoch 267/10000] loss=0.5570 val_dice=0.3632 val_iou=0.2226 time=2.8s lr=2.50e-04 root_dice=0.3632 stem_dice=0.9227 check_dice=0.9174 select_dice=0.3632
+[Epoch 268/10000] loss=0.4977 val_dice=0.3588 val_iou=0.2192 time=2.8s lr=2.50e-04 root_dice=0.3588 stem_dice=0.9265 check_dice=0.9214 select_dice=0.3588
+[Epoch 269/10000] loss=0.5350 val_dice=0.3548 val_iou=0.2162 time=2.8s lr=2.50e-04 root_dice=0.3548 stem_dice=0.9117 check_dice=0.9189 select_dice=0.3548
+[Epoch 270/10000] loss=0.5088 val_dice=0.3596 val_iou=0.2199 time=2.8s lr=2.50e-04 root_dice=0.3596 stem_dice=0.8158 check_dice=0.8972 select_dice=0.3596
+[Epoch 271/10000] loss=0.5561 val_dice=0.3605 val_iou=0.2211 time=2.8s lr=2.50e-04 root_dice=0.3605 stem_dice=0.8613 check_dice=0.8820 select_dice=0.3605
+[Epoch 272/10000] loss=0.5262 val_dice=0.3587 val_iou=0.2202 time=2.8s lr=2.50e-04 root_dice=0.3587 stem_dice=0.9393 check_dice=0.8769 select_dice=0.3587
+[Epoch 273/10000] loss=0.4536 val_dice=0.3596 val_iou=0.2210 time=2.7s lr=2.50e-04 root_dice=0.3596 stem_dice=0.9423 check_dice=0.8722 select_dice=0.3596
+[Epoch 274/10000] loss=0.5042 val_dice=0.3694 val_iou=0.2281 time=3.4s lr=2.50e-04 root_dice=0.3694 stem_dice=0.9289 check_dice=0.8784 select_dice=0.3694 *best*
+[Epoch 275/10000] loss=0.5230 val_dice=0.3731 val_iou=0.2308 time=3.3s lr=2.50e-04 root_dice=0.3731 stem_dice=0.9300 check_dice=0.8889 select_dice=0.3731 *best*
+[Epoch 276/10000] loss=0.5441 val_dice=0.3739 val_iou=0.2311 time=3.3s lr=2.50e-04 root_dice=0.3739 stem_dice=0.9277 check_dice=0.8988 select_dice=0.3739 *best*
+[Epoch 277/10000] loss=0.5401 val_dice=0.3721 val_iou=0.2298 time=2.7s lr=2.50e-04 root_dice=0.3721 stem_dice=0.9185 check_dice=0.8943 select_dice=0.3721
+[Epoch 278/10000] loss=0.5096 val_dice=0.3674 val_iou=0.2264 time=2.8s lr=2.50e-04 root_dice=0.3674 stem_dice=0.9072 check_dice=0.8951 select_dice=0.3674
+[Epoch 279/10000] loss=0.5101 val_dice=0.3604 val_iou=0.2214 time=2.8s lr=2.50e-04 root_dice=0.3604 stem_dice=0.9285 check_dice=0.8953 select_dice=0.3604
+[Epoch 280/10000] loss=0.5343 val_dice=0.3529 val_iou=0.2162 time=2.8s lr=2.50e-04 root_dice=0.3529 stem_dice=0.9396 check_dice=0.8744 select_dice=0.3529
+[Epoch 281/10000] loss=0.5434 val_dice=0.3520 val_iou=0.2160 time=2.8s lr=2.50e-04 root_dice=0.3520 stem_dice=0.9040 check_dice=0.8515 select_dice=0.3520
+[Epoch 282/10000] loss=0.5370 val_dice=0.3481 val_iou=0.2133 time=2.8s lr=2.50e-04 root_dice=0.3481 stem_dice=0.9356 check_dice=0.8445 select_dice=0.3481
+[Epoch 283/10000] loss=0.5516 val_dice=0.3458 val_iou=0.2117 time=2.8s lr=2.50e-04 root_dice=0.3458 stem_dice=0.9108 check_dice=0.8485 select_dice=0.3458
+[Epoch 284/10000] loss=0.5292 val_dice=0.3468 val_iou=0.2124 time=2.8s lr=2.50e-04 root_dice=0.3468 stem_dice=0.9193 check_dice=0.8580 select_dice=0.3468
+[Epoch 285/10000] loss=0.5180 val_dice=0.3513 val_iou=0.2155 time=2.8s lr=2.50e-04 root_dice=0.3513 stem_dice=0.9369 check_dice=0.8559 select_dice=0.3513
+[Epoch 286/10000] loss=0.5359 val_dice=0.3616 val_iou=0.2227 time=2.8s lr=2.50e-04 root_dice=0.3616 stem_dice=0.9190 check_dice=0.8763 select_dice=0.3616
+[Epoch 287/10000] loss=0.5447 val_dice=0.3599 val_iou=0.2212 time=2.9s lr=2.50e-04 root_dice=0.3599 stem_dice=0.8958 check_dice=0.8808 select_dice=0.3599
+[Epoch 288/10000] loss=0.5219 val_dice=0.3565 val_iou=0.2185 time=2.8s lr=2.50e-04 root_dice=0.3565 stem_dice=0.9009 check_dice=0.8864 select_dice=0.3565
+[Epoch 289/10000] loss=0.5369 val_dice=0.3438 val_iou=0.2094 time=2.8s lr=2.50e-04 root_dice=0.3438 stem_dice=0.9077 check_dice=0.8708 select_dice=0.3438
+[Epoch 290/10000] loss=0.4994 val_dice=0.3313 val_iou=0.2003 time=2.7s lr=2.50e-04 root_dice=0.3313 stem_dice=0.9139 check_dice=0.8839 select_dice=0.3313
+[Epoch 291/10000] loss=0.5115 val_dice=0.3450 val_iou=0.2104 time=2.8s lr=2.50e-04 root_dice=0.3450 stem_dice=0.9087 check_dice=0.8903 select_dice=0.3450
+[Epoch 292/10000] loss=0.5010 val_dice=0.3615 val_iou=0.2225 time=2.8s lr=2.50e-04 root_dice=0.3615 stem_dice=0.9005 check_dice=0.9132 select_dice=0.3615
+[Epoch 293/10000] loss=0.5014 val_dice=0.3738 val_iou=0.2313 time=2.7s lr=2.50e-04 root_dice=0.3738 stem_dice=0.9097 check_dice=0.9327 select_dice=0.3738
+[Epoch 294/10000] loss=0.5179 val_dice=0.3757 val_iou=0.2327 time=3.4s lr=2.50e-04 root_dice=0.3757 stem_dice=0.9321 check_dice=0.9317 select_dice=0.3757 *best*
+[Epoch 295/10000] loss=0.4995 val_dice=0.3705 val_iou=0.2290 time=2.8s lr=2.50e-04 root_dice=0.3705 stem_dice=0.9386 check_dice=0.9175 select_dice=0.3705
+[Epoch 296/10000] loss=0.5019 val_dice=0.3630 val_iou=0.2235 time=2.8s lr=2.50e-04 root_dice=0.3630 stem_dice=0.9491 check_dice=0.8986 select_dice=0.3630
+[Epoch 297/10000] loss=0.5273 val_dice=0.3596 val_iou=0.2207 time=2.8s lr=2.50e-04 root_dice=0.3596 stem_dice=0.9539 check_dice=0.9039 select_dice=0.3596
+[Epoch 298/10000] loss=0.5217 val_dice=0.3623 val_iou=0.2227 time=2.8s lr=2.50e-04 root_dice=0.3623 stem_dice=0.9371 check_dice=0.9144 select_dice=0.3623
+[Epoch 299/10000] loss=0.5029 val_dice=0.3601 val_iou=0.2213 time=2.8s lr=2.50e-04 root_dice=0.3601 stem_dice=0.9292 check_dice=0.9061 select_dice=0.3601
+[Epoch 300/10000] loss=0.4916 val_dice=0.3550 val_iou=0.2177 time=2.8s lr=2.50e-04 root_dice=0.3550 stem_dice=0.9240 check_dice=0.8966 select_dice=0.3550
+[Epoch 301/10000] loss=0.5031 val_dice=0.3478 val_iou=0.2122 time=2.8s lr=2.50e-04 root_dice=0.3478 stem_dice=0.9261 check_dice=0.8966 select_dice=0.3478
+[Epoch 302/10000] loss=0.4706 val_dice=0.3408 val_iou=0.2072 time=2.8s lr=2.50e-04 root_dice=0.3408 stem_dice=0.9218 check_dice=0.8809 select_dice=0.3408
+[Epoch 303/10000] loss=0.4766 val_dice=0.3415 val_iou=0.2079 time=2.7s lr=2.50e-04 root_dice=0.3415 stem_dice=0.9132 check_dice=0.8748 select_dice=0.3415
+[Epoch 304/10000] loss=0.5313 val_dice=0.3487 val_iou=0.2131 time=2.8s lr=2.50e-04 root_dice=0.3487 stem_dice=0.9166 check_dice=0.8873 select_dice=0.3487
+[Epoch 305/10000] loss=0.5533 val_dice=0.3640 val_iou=0.2241 time=2.8s lr=2.50e-04 root_dice=0.3640 stem_dice=0.9110 check_dice=0.9084 select_dice=0.3640
+[Epoch 306/10000] loss=0.5653 val_dice=0.3795 val_iou=0.2353 time=3.5s lr=2.50e-04 root_dice=0.3795 stem_dice=0.9207 check_dice=0.9333 select_dice=0.3795 *best*
+[Epoch 307/10000] loss=0.5022 val_dice=0.3807 val_iou=0.2362 time=3.5s lr=2.50e-04 root_dice=0.3807 stem_dice=0.9338 check_dice=0.9214 select_dice=0.3807 *best*
+[Epoch 308/10000] loss=0.4911 val_dice=0.3809 val_iou=0.2363 time=3.5s lr=2.50e-04 root_dice=0.3809 stem_dice=0.9521 check_dice=0.9185 select_dice=0.3809 *best*
+[Epoch 309/10000] loss=0.5013 val_dice=0.3755 val_iou=0.2321 time=2.9s lr=2.50e-04 root_dice=0.3755 stem_dice=0.9154 check_dice=0.9044 select_dice=0.3755
+[Epoch 310/10000] loss=0.4923 val_dice=0.3744 val_iou=0.2313 time=2.8s lr=2.50e-04 root_dice=0.3744 stem_dice=0.9205 check_dice=0.8966 select_dice=0.3744
+[Epoch 311/10000] loss=0.5210 val_dice=0.3686 val_iou=0.2272 time=2.8s lr=2.50e-04 root_dice=0.3686 stem_dice=0.9276 check_dice=0.8884 select_dice=0.3686
+[Epoch 312/10000] loss=0.5224 val_dice=0.3589 val_iou=0.2205 time=2.8s lr=2.50e-04 root_dice=0.3589 stem_dice=0.9357 check_dice=0.8840 select_dice=0.3589
+[Epoch 313/10000] loss=0.4992 val_dice=0.3557 val_iou=0.2186 time=2.8s lr=2.50e-04 root_dice=0.3557 stem_dice=0.9398 check_dice=0.8727 select_dice=0.3557
+[Epoch 314/10000] loss=0.4977 val_dice=0.3527 val_iou=0.2165 time=2.8s lr=2.50e-04 root_dice=0.3527 stem_dice=0.9364 check_dice=0.8571 select_dice=0.3527
+[Epoch 315/10000] loss=0.4779 val_dice=0.3608 val_iou=0.2227 time=2.7s lr=2.50e-04 root_dice=0.3608 stem_dice=0.9314 check_dice=0.8571 select_dice=0.3608
+[Epoch 316/10000] loss=0.4872 val_dice=0.3588 val_iou=0.2211 time=2.8s lr=2.50e-04 root_dice=0.3588 stem_dice=0.9310 check_dice=0.8579 select_dice=0.3588
+[Epoch 317/10000] loss=0.4478 val_dice=0.3562 val_iou=0.2192 time=2.9s lr=2.50e-04 root_dice=0.3562 stem_dice=0.9362 check_dice=0.8642 select_dice=0.3562
+[Epoch 318/10000] loss=0.5089 val_dice=0.3554 val_iou=0.2184 time=2.7s lr=2.50e-04 root_dice=0.3554 stem_dice=0.9449 check_dice=0.8865 select_dice=0.3554
+[Epoch 319/10000] loss=0.4971 val_dice=0.3557 val_iou=0.2186 time=2.7s lr=2.50e-04 root_dice=0.3557 stem_dice=0.9408 check_dice=0.8892 select_dice=0.3557
+[Epoch 320/10000] loss=0.5176 val_dice=0.3583 val_iou=0.2205 time=2.8s lr=2.50e-04 root_dice=0.3583 stem_dice=0.9400 check_dice=0.8958 select_dice=0.3583
+[Epoch 321/10000] loss=0.4905 val_dice=0.3605 val_iou=0.2217 time=2.8s lr=2.50e-04 root_dice=0.3605 stem_dice=0.9330 check_dice=0.9075 select_dice=0.3605
+[Epoch 322/10000] loss=0.5073 val_dice=0.3616 val_iou=0.2225 time=2.7s lr=2.50e-04 root_dice=0.3616 stem_dice=0.9403 check_dice=0.9112 select_dice=0.3616
+[Epoch 323/10000] loss=0.5097 val_dice=0.3757 val_iou=0.2325 time=2.7s lr=2.50e-04 root_dice=0.3757 stem_dice=0.9415 check_dice=0.9291 select_dice=0.3757
+[Epoch 324/10000] loss=0.5069 val_dice=0.3821 val_iou=0.2372 time=3.4s lr=2.50e-04 root_dice=0.3821 stem_dice=0.9533 check_dice=0.9320 select_dice=0.3821 *best*
+[Epoch 325/10000] loss=0.5071 val_dice=0.3871 val_iou=0.2409 time=3.3s lr=2.50e-04 root_dice=0.3871 stem_dice=0.9163 check_dice=0.9339 select_dice=0.3871 *best*
+[Epoch 326/10000] loss=0.4559 val_dice=0.3857 val_iou=0.2399 time=2.7s lr=2.50e-04 root_dice=0.3857 stem_dice=0.8924 check_dice=0.9296 select_dice=0.3857
+[Epoch 327/10000] loss=0.4623 val_dice=0.3802 val_iou=0.2359 time=2.8s lr=2.50e-04 root_dice=0.3802 stem_dice=0.9373 check_dice=0.9195 select_dice=0.3802
+[Epoch 328/10000] loss=0.4581 val_dice=0.3724 val_iou=0.2300 time=2.7s lr=2.50e-04 root_dice=0.3724 stem_dice=0.9349 check_dice=0.9073 select_dice=0.3724
+[Epoch 329/10000] loss=0.4788 val_dice=0.3701 val_iou=0.2283 time=2.8s lr=2.50e-04 root_dice=0.3701 stem_dice=0.9243 check_dice=0.9090 select_dice=0.3701
+[Epoch 330/10000] loss=0.4950 val_dice=0.3743 val_iou=0.2315 time=2.8s lr=2.50e-04 root_dice=0.3743 stem_dice=0.9191 check_dice=0.9225 select_dice=0.3743
+[Epoch 331/10000] loss=0.4817 val_dice=0.3774 val_iou=0.2339 time=2.8s lr=2.50e-04 root_dice=0.3774 stem_dice=0.9217 check_dice=0.9108 select_dice=0.3774
+[Epoch 332/10000] loss=0.4726 val_dice=0.3765 val_iou=0.2337 time=2.8s lr=2.50e-04 root_dice=0.3765 stem_dice=0.9231 check_dice=0.9059 select_dice=0.3765
+[Epoch 333/10000] loss=0.5143 val_dice=0.3777 val_iou=0.2347 time=2.7s lr=2.50e-04 root_dice=0.3777 stem_dice=0.9252 check_dice=0.9120 select_dice=0.3777
+[Epoch 334/10000] loss=0.4791 val_dice=0.3687 val_iou=0.2282 time=2.8s lr=2.50e-04 root_dice=0.3687 stem_dice=0.9528 check_dice=0.9130 select_dice=0.3687
+[Epoch 335/10000] loss=0.4928 val_dice=0.3716 val_iou=0.2301 time=2.8s lr=2.50e-04 root_dice=0.3716 stem_dice=0.9183 check_dice=0.9015 select_dice=0.3716
+[Epoch 336/10000] loss=0.4839 val_dice=0.3706 val_iou=0.2291 time=2.8s lr=2.50e-04 root_dice=0.3706 stem_dice=0.8975 check_dice=0.9016 select_dice=0.3706
+[Epoch 337/10000] loss=0.4581 val_dice=0.3730 val_iou=0.2307 time=2.8s lr=2.50e-04 root_dice=0.3730 stem_dice=0.9034 check_dice=0.9083 select_dice=0.3730
+[Epoch 338/10000] loss=0.4644 val_dice=0.3820 val_iou=0.2372 time=2.8s lr=2.50e-04 root_dice=0.3820 stem_dice=0.9329 check_dice=0.9187 select_dice=0.3820
+[Epoch 339/10000] loss=0.4180 val_dice=0.3805 val_iou=0.2362 time=2.8s lr=2.50e-04 root_dice=0.3805 stem_dice=0.9030 check_dice=0.9037 select_dice=0.3805
+[Epoch 340/10000] loss=0.4783 val_dice=0.3757 val_iou=0.2329 time=2.8s lr=2.50e-04 root_dice=0.3757 stem_dice=0.8781 check_dice=0.8950 select_dice=0.3757
+[Epoch 341/10000] loss=0.4537 val_dice=0.3676 val_iou=0.2275 time=2.8s lr=2.50e-04 root_dice=0.3676 stem_dice=0.9284 check_dice=0.8624 select_dice=0.3676
+[Epoch 342/10000] loss=0.4448 val_dice=0.3665 val_iou=0.2265 time=2.7s lr=2.50e-04 root_dice=0.3665 stem_dice=0.9077 check_dice=0.8769 select_dice=0.3665
+[Epoch 343/10000] loss=0.4608 val_dice=0.3649 val_iou=0.2251 time=2.8s lr=2.50e-04 root_dice=0.3649 stem_dice=0.8998 check_dice=0.9036 select_dice=0.3649
+[Epoch 344/10000] loss=0.4550 val_dice=0.3640 val_iou=0.2242 time=2.7s lr=2.50e-04 root_dice=0.3640 stem_dice=0.9227 check_dice=0.9116 select_dice=0.3640
+[Epoch 345/10000] loss=0.5048 val_dice=0.3703 val_iou=0.2285 time=2.8s lr=2.50e-04 root_dice=0.3703 stem_dice=0.9302 check_dice=0.9325 select_dice=0.3703
+[Epoch 346/10000] loss=0.4542 val_dice=0.3741 val_iou=0.2314 time=2.8s lr=2.50e-04 root_dice=0.3741 stem_dice=0.9482 check_dice=0.9282 select_dice=0.3741
+[Epoch 347/10000] loss=0.4827 val_dice=0.3772 val_iou=0.2340 time=2.8s lr=2.50e-04 root_dice=0.3772 stem_dice=0.9560 check_dice=0.9269 select_dice=0.3772
+[Epoch 348/10000] loss=0.4506 val_dice=0.3670 val_iou=0.2272 time=2.7s lr=2.50e-04 root_dice=0.3670 stem_dice=0.9543 check_dice=0.8944 select_dice=0.3670
+[Epoch 349/10000] loss=0.4661 val_dice=0.3587 val_iou=0.2209 time=2.7s lr=2.50e-04 root_dice=0.3587 stem_dice=0.9294 check_dice=0.8845 select_dice=0.3587
+[Epoch 350/10000] loss=0.4469 val_dice=0.3528 val_iou=0.2165 time=2.8s lr=2.50e-04 root_dice=0.3528 stem_dice=0.9035 check_dice=0.8800 select_dice=0.3528
+[Epoch 351/10000] loss=0.4921 val_dice=0.3553 val_iou=0.2182 time=2.8s lr=1.25e-04 root_dice=0.3553 stem_dice=0.8761 check_dice=0.8784 select_dice=0.3553
+[学习率] 联合 Dice 连续 25 轮未提升：2.50e-04 → 1.25e-04
+[Epoch 352/10000] loss=0.4749 val_dice=0.3564 val_iou=0.2190 time=2.8s lr=1.25e-04 root_dice=0.3564 stem_dice=0.8840 check_dice=0.8874 select_dice=0.3564
+[Epoch 353/10000] loss=0.4382 val_dice=0.3596 val_iou=0.2214 time=2.8s lr=1.25e-04 root_dice=0.3596 stem_dice=0.9030 check_dice=0.9048 select_dice=0.3596
+[Epoch 354/10000] loss=0.4503 val_dice=0.3610 val_iou=0.2226 time=2.8s lr=1.25e-04 root_dice=0.3610 stem_dice=0.9278 check_dice=0.9036 select_dice=0.3610
+[Epoch 355/10000] loss=0.4214 val_dice=0.3620 val_iou=0.2235 time=2.8s lr=1.25e-04 root_dice=0.3620 stem_dice=0.9425 check_dice=0.9109 select_dice=0.3620
+[Epoch 356/10000] loss=0.4474 val_dice=0.3660 val_iou=0.2265 time=2.8s lr=1.25e-04 root_dice=0.3660 stem_dice=0.9485 check_dice=0.9065 select_dice=0.3660
+[Epoch 357/10000] loss=0.4771 val_dice=0.3720 val_iou=0.2312 time=2.8s lr=1.25e-04 root_dice=0.3720 stem_dice=0.9346 check_dice=0.8972 select_dice=0.3720
+[Epoch 358/10000] loss=0.4842 val_dice=0.3775 val_iou=0.2352 time=2.8s lr=1.25e-04 root_dice=0.3775 stem_dice=0.8990 check_dice=0.9017 select_dice=0.3775
+[Epoch 359/10000] loss=0.4334 val_dice=0.3772 val_iou=0.2352 time=2.7s lr=1.25e-04 root_dice=0.3772 stem_dice=0.8746 check_dice=0.8892 select_dice=0.3772
+[Epoch 360/10000] loss=0.3884 val_dice=0.3775 val_iou=0.2353 time=2.8s lr=1.25e-04 root_dice=0.3775 stem_dice=0.8719 check_dice=0.8910 select_dice=0.3775
+[Epoch 361/10000] loss=0.4507 val_dice=0.3764 val_iou=0.2344 time=2.9s lr=1.25e-04 root_dice=0.3764 stem_dice=0.8890 check_dice=0.8841 select_dice=0.3764
+[Epoch 362/10000] loss=0.4395 val_dice=0.3753 val_iou=0.2332 time=2.8s lr=1.25e-04 root_dice=0.3753 stem_dice=0.9105 check_dice=0.8837 select_dice=0.3753
+[Epoch 363/10000] loss=0.4475 val_dice=0.3761 val_iou=0.2335 time=2.7s lr=1.25e-04 root_dice=0.3761 stem_dice=0.9312 check_dice=0.8920 select_dice=0.3761
+[Epoch 364/10000] loss=0.4314 val_dice=0.3738 val_iou=0.2317 time=2.8s lr=1.25e-04 root_dice=0.3738 stem_dice=0.9458 check_dice=0.8939 select_dice=0.3738
+[Epoch 365/10000] loss=0.4815 val_dice=0.3738 val_iou=0.2317 time=2.8s lr=1.25e-04 root_dice=0.3738 stem_dice=0.9482 check_dice=0.9016 select_dice=0.3738
+[Epoch 366/10000] loss=0.4888 val_dice=0.3743 val_iou=0.2321 time=2.7s lr=1.25e-04 root_dice=0.3743 stem_dice=0.9479 check_dice=0.9060 select_dice=0.3743
+[Epoch 367/10000] loss=0.4633 val_dice=0.3732 val_iou=0.2315 time=2.8s lr=1.25e-04 root_dice=0.3732 stem_dice=0.9472 check_dice=0.9047 select_dice=0.3732
+[Epoch 368/10000] loss=0.4623 val_dice=0.3751 val_iou=0.2329 time=2.8s lr=1.25e-04 root_dice=0.3751 stem_dice=0.9388 check_dice=0.9108 select_dice=0.3751
+[Epoch 369/10000] loss=0.4423 val_dice=0.3766 val_iou=0.2341 time=2.8s lr=1.25e-04 root_dice=0.3766 stem_dice=0.9275 check_dice=0.9092 select_dice=0.3766
+[Epoch 370/10000] loss=0.4002 val_dice=0.3715 val_iou=0.2308 time=2.8s lr=1.25e-04 root_dice=0.3715 stem_dice=0.9210 check_dice=0.8995 select_dice=0.3715
+[Epoch 371/10000] loss=0.4261 val_dice=0.3719 val_iou=0.2311 time=2.8s lr=1.25e-04 root_dice=0.3719 stem_dice=0.9209 check_dice=0.9049 select_dice=0.3719
+[Epoch 372/10000] loss=0.4459 val_dice=0.3736 val_iou=0.2321 time=2.8s lr=1.25e-04 root_dice=0.3736 stem_dice=0.9273 check_dice=0.9021 select_dice=0.3736
+[Epoch 373/10000] loss=0.4915 val_dice=0.3723 val_iou=0.2312 time=2.8s lr=1.25e-04 root_dice=0.3723 stem_dice=0.9377 check_dice=0.8980 select_dice=0.3723
+[Epoch 374/10000] loss=0.4115 val_dice=0.3657 val_iou=0.2265 time=2.8s lr=1.25e-04 root_dice=0.3657 stem_dice=0.9517 check_dice=0.8880 select_dice=0.3657
+[Epoch 375/10000] loss=0.4144 val_dice=0.3644 val_iou=0.2255 time=2.8s lr=1.25e-04 root_dice=0.3644 stem_dice=0.9515 check_dice=0.8856 select_dice=0.3644
+[Epoch 376/10000] loss=0.4060 val_dice=0.3681 val_iou=0.2282 time=2.8s lr=1.25e-04 root_dice=0.3681 stem_dice=0.9436 check_dice=0.8856 select_dice=0.3681
+[Epoch 377/10000] loss=0.4302 val_dice=0.3775 val_iou=0.2349 time=2.9s lr=6.25e-05 root_dice=0.3775 stem_dice=0.9344 check_dice=0.8956 select_dice=0.3775
+[学习率] 联合 Dice 连续 25 轮未提升：1.25e-04 → 6.25e-05
+[Epoch 378/10000] loss=0.4500 val_dice=0.3787 val_iou=0.2357 time=3.0s lr=6.25e-05 root_dice=0.3787 stem_dice=0.9302 check_dice=0.9016 select_dice=0.3787
+[Epoch 379/10000] loss=0.4752 val_dice=0.3825 val_iou=0.2383 time=2.9s lr=6.25e-05 root_dice=0.3825 stem_dice=0.9210 check_dice=0.9099 select_dice=0.3825
+[Epoch 380/10000] loss=0.4443 val_dice=0.3797 val_iou=0.2365 time=2.9s lr=6.25e-05 root_dice=0.3797 stem_dice=0.9182 check_dice=0.9079 select_dice=0.3797
+[Epoch 381/10000] loss=0.4558 val_dice=0.3796 val_iou=0.2364 time=2.9s lr=6.25e-05 root_dice=0.3796 stem_dice=0.9213 check_dice=0.9079 select_dice=0.3796
+[Epoch 382/10000] loss=0.4759 val_dice=0.3733 val_iou=0.2321 time=2.9s lr=6.25e-05 root_dice=0.3733 stem_dice=0.9281 check_dice=0.8939 select_dice=0.3733
+[Epoch 383/10000] loss=0.4211 val_dice=0.3714 val_iou=0.2308 time=2.9s lr=6.25e-05 root_dice=0.3714 stem_dice=0.9322 check_dice=0.8948 select_dice=0.3714
+[Epoch 384/10000] loss=0.4556 val_dice=0.3700 val_iou=0.2298 time=2.9s lr=6.25e-05 root_dice=0.3700 stem_dice=0.9412 check_dice=0.8845 select_dice=0.3700
+[Epoch 385/10000] loss=0.4506 val_dice=0.3684 val_iou=0.2285 time=2.9s lr=6.25e-05 root_dice=0.3684 stem_dice=0.9480 check_dice=0.8866 select_dice=0.3684
+[Epoch 386/10000] loss=0.4724 val_dice=0.3674 val_iou=0.2280 time=2.9s lr=6.25e-05 root_dice=0.3674 stem_dice=0.9517 check_dice=0.8822 select_dice=0.3674
+[Epoch 387/10000] loss=0.4380 val_dice=0.3696 val_iou=0.2294 time=2.9s lr=6.25e-05 root_dice=0.3696 stem_dice=0.9513 check_dice=0.9022 select_dice=0.3696
+[Epoch 388/10000] loss=0.4512 val_dice=0.3704 val_iou=0.2299 time=2.9s lr=6.25e-05 root_dice=0.3704 stem_dice=0.9551 check_dice=0.9069 select_dice=0.3704
+[Epoch 389/10000] loss=0.4411 val_dice=0.3726 val_iou=0.2315 time=3.0s lr=6.25e-05 root_dice=0.3726 stem_dice=0.9518 check_dice=0.9136 select_dice=0.3726
+[Epoch 390/10000] loss=0.4301 val_dice=0.3735 val_iou=0.2322 time=3.0s lr=6.25e-05 root_dice=0.3735 stem_dice=0.9440 check_dice=0.9144 select_dice=0.3735
+[Epoch 391/10000] loss=0.4573 val_dice=0.3777 val_iou=0.2352 time=2.8s lr=6.25e-05 root_dice=0.3777 stem_dice=0.9353 check_dice=0.9268 select_dice=0.3777
+[Epoch 392/10000] loss=0.4030 val_dice=0.3820 val_iou=0.2380 time=2.8s lr=6.25e-05 root_dice=0.3820 stem_dice=0.9306 check_dice=0.9347 select_dice=0.3820
+[Epoch 393/10000] loss=0.4449 val_dice=0.3789 val_iou=0.2360 time=2.7s lr=6.25e-05 root_dice=0.3789 stem_dice=0.9285 check_dice=0.9338 select_dice=0.3789
+[Epoch 394/10000] loss=0.4764 val_dice=0.3763 val_iou=0.2343 time=2.8s lr=6.25e-05 root_dice=0.3763 stem_dice=0.9334 check_dice=0.9283 select_dice=0.3763
+[Epoch 395/10000] loss=0.4340 val_dice=0.3759 val_iou=0.2339 time=2.8s lr=6.25e-05 root_dice=0.3759 stem_dice=0.9384 check_dice=0.9257 select_dice=0.3759
+[Epoch 396/10000] loss=0.4280 val_dice=0.3725 val_iou=0.2317 time=2.7s lr=6.25e-05 root_dice=0.3725 stem_dice=0.9481 check_dice=0.9191 select_dice=0.3725
+[Epoch 397/10000] loss=0.4807 val_dice=0.3716 val_iou=0.2309 time=2.8s lr=6.25e-05 root_dice=0.3716 stem_dice=0.9525 check_dice=0.9051 select_dice=0.3716
+[Epoch 398/10000] loss=0.4117 val_dice=0.3723 val_iou=0.2314 time=2.8s lr=6.25e-05 root_dice=0.3723 stem_dice=0.9515 check_dice=0.9119 select_dice=0.3723
+[Epoch 399/10000] loss=0.4617 val_dice=0.3746 val_iou=0.2329 time=2.8s lr=6.25e-05 root_dice=0.3746 stem_dice=0.9513 check_dice=0.9147 select_dice=0.3746
+[Epoch 400/10000] loss=0.4077 val_dice=0.3738 val_iou=0.2324 time=2.7s lr=6.25e-05 root_dice=0.3738 stem_dice=0.9477 check_dice=0.9068 select_dice=0.3738
+[Epoch 401/10000] loss=0.4689 val_dice=0.3756 val_iou=0.2336 time=2.9s lr=6.25e-05 root_dice=0.3756 stem_dice=0.9422 check_dice=0.9074 select_dice=0.3756
+[Epoch 402/10000] loss=0.4538 val_dice=0.3771 val_iou=0.2348 time=2.9s lr=6.25e-05 root_dice=0.3771 stem_dice=0.9378 check_dice=0.9124 select_dice=0.3771
+[Epoch 403/10000] loss=0.4207 val_dice=0.3780 val_iou=0.2354 time=3.0s lr=3.13e-05 root_dice=0.3780 stem_dice=0.9434 check_dice=0.9160 select_dice=0.3780
+[学习率] 联合 Dice 连续 25 轮未提升：6.25e-05 → 3.13e-05
+[Epoch 404/10000] loss=0.4131 val_dice=0.3812 val_iou=0.2376 time=2.9s lr=3.13e-05 root_dice=0.3812 stem_dice=0.9462 check_dice=0.9183 select_dice=0.3812
+[Epoch 405/10000] loss=0.4027 val_dice=0.3815 val_iou=0.2379 time=2.8s lr=3.13e-05 root_dice=0.3815 stem_dice=0.9470 check_dice=0.9203 select_dice=0.3815
+[Epoch 406/10000] loss=0.4323 val_dice=0.3791 val_iou=0.2363 time=2.8s lr=3.13e-05 root_dice=0.3791 stem_dice=0.9467 check_dice=0.9165 select_dice=0.3791
+[Epoch 407/10000] loss=0.4542 val_dice=0.3778 val_iou=0.2354 time=2.8s lr=3.13e-05 root_dice=0.3778 stem_dice=0.9443 check_dice=0.9111 select_dice=0.3778
+[Epoch 408/10000] loss=0.4799 val_dice=0.3812 val_iou=0.2377 time=2.8s lr=3.13e-05 root_dice=0.3812 stem_dice=0.9465 check_dice=0.9158 select_dice=0.3812
+[Epoch 409/10000] loss=0.4360 val_dice=0.3798 val_iou=0.2369 time=2.8s lr=3.13e-05 root_dice=0.3798 stem_dice=0.9474 check_dice=0.9172 select_dice=0.3798
+[Epoch 410/10000] loss=0.4518 val_dice=0.3817 val_iou=0.2382 time=2.8s lr=3.13e-05 root_dice=0.3817 stem_dice=0.9471 check_dice=0.9166 select_dice=0.3817
+[Epoch 411/10000] loss=0.4306 val_dice=0.3828 val_iou=0.2389 time=2.8s lr=3.13e-05 root_dice=0.3828 stem_dice=0.9480 check_dice=0.9238 select_dice=0.3828
+[Epoch 412/10000] loss=0.4374 val_dice=0.3815 val_iou=0.2381 time=2.8s lr=3.13e-05 root_dice=0.3815 stem_dice=0.9480 check_dice=0.9173 select_dice=0.3815
+[Epoch 413/10000] loss=0.4221 val_dice=0.3824 val_iou=0.2387 time=2.8s lr=3.13e-05 root_dice=0.3824 stem_dice=0.9444 check_dice=0.9152 select_dice=0.3824
+[Epoch 414/10000] loss=0.4610 val_dice=0.3821 val_iou=0.2385 time=2.8s lr=3.13e-05 root_dice=0.3821 stem_dice=0.9411 check_dice=0.9136 select_dice=0.3821
+[Epoch 415/10000] loss=0.4502 val_dice=0.3823 val_iou=0.2387 time=2.8s lr=3.13e-05 root_dice=0.3823 stem_dice=0.9353 check_dice=0.9113 select_dice=0.3823
+[Epoch 416/10000] loss=0.4490 val_dice=0.3836 val_iou=0.2396 time=2.8s lr=3.13e-05 root_dice=0.3836 stem_dice=0.9351 check_dice=0.9184 select_dice=0.3836
+[Epoch 417/10000] loss=0.4295 val_dice=0.3811 val_iou=0.2379 time=2.8s lr=3.13e-05 root_dice=0.3811 stem_dice=0.9387 check_dice=0.9145 select_dice=0.3811
+[Epoch 418/10000] loss=0.4253 val_dice=0.3793 val_iou=0.2367 time=2.8s lr=3.13e-05 root_dice=0.3793 stem_dice=0.9387 check_dice=0.9122 select_dice=0.3793
+[Epoch 419/10000] loss=0.4229 val_dice=0.3783 val_iou=0.2360 time=2.8s lr=3.13e-05 root_dice=0.3783 stem_dice=0.9381 check_dice=0.9124 select_dice=0.3783
+[Epoch 420/10000] loss=0.4427 val_dice=0.3787 val_iou=0.2361 time=2.8s lr=3.13e-05 root_dice=0.3787 stem_dice=0.9377 check_dice=0.9135 select_dice=0.3787
+[Epoch 421/10000] loss=0.4785 val_dice=0.3793 val_iou=0.2365 time=2.8s lr=3.13e-05 root_dice=0.3793 stem_dice=0.9373 check_dice=0.9170 select_dice=0.3793
+[Epoch 422/10000] loss=0.4340 val_dice=0.3765 val_iou=0.2346 time=2.8s lr=3.13e-05 root_dice=0.3765 stem_dice=0.9405 check_dice=0.9134 select_dice=0.3765
+[Epoch 423/10000] loss=0.4447 val_dice=0.3777 val_iou=0.2353 time=2.8s lr=3.13e-05 root_dice=0.3777 stem_dice=0.9426 check_dice=0.9192 select_dice=0.3777
+[Epoch 424/10000] loss=0.4037 val_dice=0.3756 val_iou=0.2339 time=2.8s lr=3.13e-05 root_dice=0.3756 stem_dice=0.9471 check_dice=0.9179 select_dice=0.3756
+[Epoch 425/10000] loss=0.4160 val_dice=0.3763 val_iou=0.2344 time=2.8s lr=3.13e-05 root_dice=0.3763 stem_dice=0.9455 check_dice=0.9195 select_dice=0.3763
+[Epoch 426/10000] loss=0.4374 val_dice=0.3784 val_iou=0.2358 time=2.8s lr=3.13e-05 root_dice=0.3784 stem_dice=0.9427 check_dice=0.9234 select_dice=0.3784
+[Epoch 427/10000] loss=0.4417 val_dice=0.3800 val_iou=0.2370 time=2.8s lr=3.13e-05 root_dice=0.3800 stem_dice=0.9409 check_dice=0.9280 select_dice=0.3800
+[Epoch 428/10000] loss=0.4257 val_dice=0.3763 val_iou=0.2345 time=2.8s lr=3.13e-05 root_dice=0.3763 stem_dice=0.9389 check_dice=0.9213 select_dice=0.3763
+[Epoch 429/10000] loss=0.4455 val_dice=0.3794 val_iou=0.2366 time=2.8s lr=1.56e-05 root_dice=0.3794 stem_dice=0.9328 check_dice=0.9267 select_dice=0.3794
+[学习率] 联合 Dice 连续 25 轮未提升：3.13e-05 → 1.56e-05
+[Epoch 430/10000] loss=0.4055 val_dice=0.3815 val_iou=0.2380 time=2.8s lr=1.56e-05 root_dice=0.3815 stem_dice=0.9287 check_dice=0.9323 select_dice=0.3815
+[Epoch 431/10000] loss=0.4170 val_dice=0.3791 val_iou=0.2364 time=2.7s lr=1.56e-05 root_dice=0.3791 stem_dice=0.9295 check_dice=0.9331 select_dice=0.3791
+[Epoch 432/10000] loss=0.4513 val_dice=0.3816 val_iou=0.2380 time=2.8s lr=1.56e-05 root_dice=0.3816 stem_dice=0.9281 check_dice=0.9359 select_dice=0.3816
+[Epoch 433/10000] loss=0.4161 val_dice=0.3792 val_iou=0.2365 time=2.8s lr=1.56e-05 root_dice=0.3792 stem_dice=0.9317 check_dice=0.9315 select_dice=0.3792
+[Epoch 434/10000] loss=0.4377 val_dice=0.3792 val_iou=0.2364 time=2.8s lr=1.56e-05 root_dice=0.3792 stem_dice=0.9342 check_dice=0.9304 select_dice=0.3792
+[Epoch 435/10000] loss=0.4122 val_dice=0.3767 val_iou=0.2347 time=2.8s lr=1.56e-05 root_dice=0.3767 stem_dice=0.9341 check_dice=0.9276 select_dice=0.3767
+[Epoch 436/10000] loss=0.4271 val_dice=0.3806 val_iou=0.2371 time=2.7s lr=1.56e-05 root_dice=0.3806 stem_dice=0.9363 check_dice=0.9312 select_dice=0.3806
+[Epoch 437/10000] loss=0.4485 val_dice=0.3748 val_iou=0.2333 time=2.7s lr=1.56e-05 root_dice=0.3748 stem_dice=0.9374 check_dice=0.9210 select_dice=0.3748
+[Epoch 438/10000] loss=0.4071 val_dice=0.3749 val_iou=0.2333 time=2.7s lr=1.56e-05 root_dice=0.3749 stem_dice=0.9382 check_dice=0.9214 select_dice=0.3749
+[Epoch 439/10000] loss=0.4271 val_dice=0.3732 val_iou=0.2322 time=2.8s lr=1.56e-05 root_dice=0.3732 stem_dice=0.9369 check_dice=0.9187 select_dice=0.3732
+[Epoch 440/10000] loss=0.3948 val_dice=0.3745 val_iou=0.2330 time=2.7s lr=1.56e-05 root_dice=0.3745 stem_dice=0.9400 check_dice=0.9197 select_dice=0.3745
+[Epoch 441/10000] loss=0.4604 val_dice=0.3744 val_iou=0.2330 time=2.8s lr=1.56e-05 root_dice=0.3744 stem_dice=0.9434 check_dice=0.9159 select_dice=0.3744
+[Epoch 442/10000] loss=0.3918 val_dice=0.3750 val_iou=0.2334 time=2.8s lr=1.56e-05 root_dice=0.3750 stem_dice=0.9420 check_dice=0.9194 select_dice=0.3750
+[Epoch 443/10000] loss=0.3972 val_dice=0.3725 val_iou=0.2318 time=2.8s lr=1.56e-05 root_dice=0.3725 stem_dice=0.9409 check_dice=0.9089 select_dice=0.3725
+[Epoch 444/10000] loss=0.4534 val_dice=0.3765 val_iou=0.2345 time=2.8s lr=1.56e-05 root_dice=0.3765 stem_dice=0.9391 check_dice=0.9149 select_dice=0.3765
+[Epoch 445/10000] loss=0.4371 val_dice=0.3741 val_iou=0.2330 time=2.7s lr=1.56e-05 root_dice=0.3741 stem_dice=0.9390 check_dice=0.9124 select_dice=0.3741
+[提前停止] 连续 120 轮联合 Dice 未提升，停止训练。
+[完成] 最佳轮次: epoch 325 | 联合 Dice 0.3871（根系 0.3871 / 茎 0.9163） | 模型已保存: /home/yejin/project-PCC/Deep_learning_model_for_sugarcane/root_model/model/model_202610082352/model_202610082352.pth
+[完成] 总训练用时 21.3 分钟 | 日志: /home/yejin/project-PCC/Deep_learning_model_for_sugarcane/root_model/model/model_202610082352/model_202610082352_log.txt
