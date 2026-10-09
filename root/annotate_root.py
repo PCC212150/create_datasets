@@ -189,6 +189,37 @@ class PredictWorker(QThread):
             self.failed.emit(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
+# 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
+# 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
+SELFTEST_CHECKS = 134
+
+
+def build_info() -> str:
+    """这份代码是哪来的 —— 报错时第一眼要能回答"你那份是什么版本"。
+
+    工具会被拷来拷去（下载的 zip、发出去的文件夹、别人桌面上的副本），
+    而"你那份是旧的"这个问题只有两个线索能回答：
+      · 目录里有 .git（源码目录）-> 报短哈希，能直接对上提交；
+      · 没有 .git（下载的 zip / 拷来的文件夹）-> 报**代码文件的时间**，报错那一方
+        把控制台前几行发过来就能比对了。
+    """
+    try:
+        import subprocess
+        out = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=5,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if out.returncode == 0 and out.stdout.strip():
+            return f"git {out.stdout.strip()}"
+    except Exception:
+        pass
+    try:
+        newest = max((p.stat().st_mtime, p.name) for p in ROOT.glob("*.py"))
+        return (f"不是 git 目录（下载的 zip / 拷来的文件夹）· "
+                f"{newest[1]} 改于 {time.strftime('%m-%d %H:%M', time.localtime(newest[0]))}")
+    except Exception:
+        return "看不出来源"
+
+
 class _NoWheelCombo(QComboBox):
     """不吃滚轮的下拉框。
 
@@ -2158,7 +2189,9 @@ class MainWindow(QMainWindow):
             super().keyPressEvent(ev)
 
     def help_box(self):
-        QMessageBox.information(self, "键位", KEYS_HELP)
+        # 版本放在键位帮助最上面：报错求助时按一下 F1 就能把版本念出来
+        QMessageBox.information(
+            self, "键位", f"代码版本：{build_info()}\n（自检 {SELFTEST_CHECKS} 项）\n\n" + KEYS_HELP)
 
     def closeEvent(self, ev):
         if not self._confirm_leave():
@@ -2248,9 +2281,11 @@ def run_selftest(args):
     """
     import json
     ok = True
+    n_checks = [0]                   # 实跑了几项（和 SELFTEST_CHECKS 对，当版本指纹用）
 
     def check(name, cond, extra=""):
         nonlocal ok
+        n_checks[0] += 1
         print(f"  [{'OK ' if cond else '失败'}] {name} {extra}")
         ok = ok and bool(cond)
 
@@ -3230,6 +3265,11 @@ def run_selftest(args):
         else:
             IO.SETTINGS_PATH.write_bytes(_saved_settings3)
 
+    # 项数当"版本指纹"用（F1 里会显示）：别人拷来的旧副本报错时报一句"我这 94 项"就能
+    # 分辨。改了自检没改 SELFTEST_CHECKS 的话，这条会失败 —— 别让它悄悄过期。
+    check(f"自检项数 = SELFTEST_CHECKS（{SELFTEST_CHECKS}，版本指纹）",
+          n_checks[0] == SELFTEST_CHECKS - 1, f"实跑 {n_checks[0] + 1} 项")
+
     # 清理：删掉整个临时输出目录（里面的东西只有自检会看），缓存里的 selftest 目录同理。
     # 用 rmtree 而不是逐个删 —— 逐个删就要靠"记住自己写过什么"，而漏记一个名字
     # 就是一个留在别人数据集里的垃圾文件。
@@ -3374,6 +3414,9 @@ def main(argv=None):
             stream.reconfigure(errors="replace")
         except Exception:
             pass
+    # 第一行就报版本：工具会被拷来拷去，出问题时"你那份是什么版本"必须先能回答
+    # （2026-10-09：一位同事的旧拷贝崩在早已修好的 bug 上，光看报错对不出是哪个版本）
+    print(f"根系标注工具 · 代码版本 {build_info()}")
     args = parse_args(argv)
     if args.prefetch:
         run_prefetch(args)
