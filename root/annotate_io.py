@@ -607,7 +607,7 @@ def _blend_mask(img: np.ndarray, mask: np.ndarray, color, alpha: float = 0.45):
 
 
 def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines,
-                    stem_polygons=(), check_box=None,
+                    stem_polygons=(), check_box=None, extra_shapes=(),
                     src_image: Path = None, datasets_dir=None,
                     poly_width: float = None, builder=None,
                     move_pictures: bool = True, save_mask: bool = True):
@@ -641,9 +641,24 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
     lines = [tuple(p) for p in polylines if len(p) >= 2]
     json_path = d / f"{stem}.json"
     tmp = json_path.with_suffix(".json.tmp")
+    # 非 root 的形状只有**一个**来源（不然会写两遍）：
+    #   · 给了 extra_shapes（工具那条路）-> 全部由它原样搬过去，这里就别再画了；
+    #   · 没给（回填/自检这类老用法）-> 退回用 stem_polygons / check_box 现画。
+    # overlay 那条路不看这个：验收图照旧把茎和绿框画出来。
     write_labelme_json(tmp, image_height=h, image_width=w, polylines=lines,
                        root_polygons=root_polys, image_path=image_name,
-                       check_box=check_box, stem_polygons=stem_polygons)
+                       check_box=None if extra_shapes else check_box,
+                       stem_polygons=() if extra_shapes else stem_polygons)
+    if extra_shapes:
+        # **非 root 的标注原样搬过去**（2026-10-11）：stem / check_background、以及你在
+        # labelme 里加的任何别的 label、连同它们的 flags，一个字段都不改。
+        # 为什么要"原样"而不是"解析出来再写回去"：解析器会把认不出的形状丢掉
+        # （点数不够的 stem、未知 label…），那等于保存一次就删一次。
+        with open(tmp, encoding="utf-8") as f:
+            body = json.load(f)
+        body["shapes"] = list(body.get("shapes") or []) + [dict(s) for s in extra_shapes]
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(body, f, ensure_ascii=False, indent=2)
     # write_labelme_json 按输出名推 imagePath，这里必须显式给**原图文件名**：
     # labelme 靠它在 json 同级目录找图，而 datasets\\ 里的图是硬链接过来的那一份。
     os.replace(tmp, json_path)

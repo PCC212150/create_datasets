@@ -195,7 +195,7 @@ class PredictWorker(QThread):
 
 # 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
 # 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
-SELFTEST_CHECKS = 139
+SELFTEST_CHECKS = 141
 
 
 def build_info() -> str:
@@ -1726,9 +1726,22 @@ class MainWindow(QMainWindow):
             # stem / check_background **只认已有 json 里的**（labelme 标的、或以前存的），
             # 工具自己不生成也不删。文档层看到的那份可能是模型的预测，绝不能写出去。
             kept = self._kept_other_labels(doc)
+            if kept.get("unreadable"):
+                # 读不出来就**保不住**里面的 stem/check（工具只写 root）—— 不能静默把它
+                # 重写成"只有 root"。宁可停一下问一句。
+                r = QMessageBox.warning(
+                    self, "已有标注读不了",
+                    f"{kept['unreadable']}\n\n"
+                    f"继续保存会把 {doc.stem}.json 整份重写（只留 root），"
+                    f"里面原有的 stem / check_background 就没了。\n\n"
+                    f"建议先备份那个 json，或者用 labelme 打开看一眼。",
+                    QMessageBox.Cancel | QMessageBox.Save, QMessageBox.Cancel)
+                if r != QMessageBox.Save:
+                    return False
             out = IO.save_annotation(
                 doc.stem, doc.image_name, doc.img.shape, doc.final_mask(),
                 doc.polylines, stem_polygons=kept["stems"], check_box=kept["check"],
+                extra_shapes=kept["raw"],
                 src_image=doc.path, datasets_dir=self.args.datasets,
                 poly_width=doc.poly_width, builder=doc.poly_builder,
                 move_pictures=not self.args.keep_pictures)
@@ -1821,24 +1834,42 @@ class MainWindow(QMainWindow):
                    f"｜只影响掩码缺的地方，掩码有根的地方用掩码自己的宽度")
 
     def _kept_other_labels(self, doc):
-        """已有 json 里的 stem / check_background —— 存盘时**原样保留**的那部分。
+        """已有 json 里**除 root 以外**的标注 —— 存盘时原样搬过去的那部分。
 
         工具只管 root（2026-10-11 用户定的）：自己不产出 stem/check，但**也不删别人的**。
-        以前是用文档里的 stem_polys/check_box 直接写出去 —— 那两个字段从模型预测来，
-        等于每次存盘都把"模型猜的"写进标注；现在改成只认 json 里已有的。
+        以前是拿文档里的 stem_polys/check_box 直接写出去 —— 那两个字段来自模型预测，
+        等于每次存盘都把"模型猜的"写进标注；现在只认 json 里已有的。
+
+        两条防线：
+          · `raw`：**逐字段原样搬**（stem / check_background / 你在 labelme 里加的别的
+            label、连同 flags 一起）—— 解析器会把认不出的形状丢掉（点数不够、未知 label），
+            那样"保存一次就删一次"；
+          · `stems`/`check`：只有显示和缓存 meta 要用（尽力而为，认不出就少显示，不丢数据）。
         """
         p = Path(self.args.datasets or IO.DATASETS_DIR) / f"{doc.stem}.json"
         if not p.exists():
-            return {"stems": (), "check": None}
+            return {"stems": (), "check": None, "raw": []}
         try:
-            from common.labelme import parse_other
-            lab = parse_other(p, image_size=(doc.img.shape[1], doc.img.shape[0]),
-                              verbose=False)
-            return {"stems": [tuple(map(tuple, x)) for x in lab.stems],
-                    "check": tuple(lab.check_rect) if lab.check_rect else None}
-        except Exception as e:      # 读不了就当没有：宁可这次不写，也不乱写
-            print(f"[提示] {p.name} 里的 stem/check 没读出来（{e}），这次只写 root")
-            return {"stems": (), "check": None}
+            body = json.loads(p.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[提示] {p.name} 读不了（{e}）")
+            return {"stems": (), "check": None, "raw": [], "unreadable": f"{p.name}: {e}"}
+        raw = [s for s in (body.get("shapes") or [])
+               if (s.get("label") or "").strip() != "root"]
+        stems, check = [], None
+        for s in raw:
+            lab = (s.get("label") or "").strip()
+            pts = [(float(q[0]), float(q[1])) for q in (s.get("points") or [])
+                   if len(q) >= 2]
+            if lab == "stem" and len(pts) >= 3:
+                stems.append(tuple(pts))
+            elif lab == "check_background" and pts:
+                xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+                box = (min(xs), min(ys), max(xs), max(ys))
+                check = box if check is None else (
+                    min(check[0], box[0]), min(check[1], box[1]),
+                    max(check[2], box[2]), max(check[3], box[3]))
+        return {"stems": stems, "check": check, "raw": raw}
 
     def set_predict(self, on):
         """「预测」开关（工具栏上那个，工具级、记得住）。
@@ -3283,6 +3314,36 @@ def run_selftest(args):
     # 这一段的起点必须是"预测开着"：别依赖 settings.json 里当时是什么（上一次跑留下的
     # 值会让"先有一版红层"那条空转 —— 2026-10-09 真踩过）
     win.predict_action.setChecked(True)
+    # ---- 非 root 的标注：存盘时**逐字段原样搬**（连 flags 和自定义 label）----
+    _js = Path(args.datasets or IO.DATASETS_DIR) / f"{imgs[0].stem}.json"
+    _old_js = _js.read_text(encoding="utf-8") if _js.exists() else None
+    _js.write_text(json.dumps({
+        "version": "6.0.0", "flags": {}, "imageData": None,
+        "imagePath": imgs[0].name, "imageHeight": int(img.shape[0]),
+        "imageWidth": int(img.shape[1]),
+        "shapes": [
+            {"label": "stem", "shape_type": "polygon",
+             "points": [[1.0, 2.0], [3.0, 2.0], [3.0, 4.0]], "flags": {"a": 1}},
+            {"label": "check_background", "shape_type": "rectangle",
+             "points": [[5.0, 6.0], [70.0, 80.0]], "flags": {}},
+            {"label": "自定义的label", "shape_type": "point",
+             "points": [[9.0, 9.0]], "flags": {"note": "别动我"}}]},
+        ensure_ascii=False), encoding="utf-8")
+    _k = win._kept_other_labels(win.doc)
+    check("非 root 的形状原样摘出来（连自定义 label 和 flags）",
+          len(_k["raw"]) == 3 and _k["raw"][0]["flags"] == {"a": 1}
+          and _k["raw"][2]["label"] == "自定义的label"
+          and _k["raw"][2]["flags"] == {"note": "别动我"}
+          and len(_k["stems"]) == 1 and tuple(_k["check"]) == (5.0, 6.0, 70.0, 80.0),
+          f"raw {len(_k['raw'])} 个")
+    _js.write_text("{ 这不是合法 json", encoding="utf-8")
+    check("json 读不了会标出来（存盘时拦一道，不静默重写）",
+          bool(win._kept_other_labels(win.doc).get("unreadable")))
+    if _old_js is None:
+        _js.unlink(missing_ok=True)
+    else:
+        _js.write_text(_old_js, encoding="utf-8")
+
     _other2 = IO.CACHE_ROOT / "_selftest_other2"
     try:
         _other2.mkdir(parents=True, exist_ok=True)
