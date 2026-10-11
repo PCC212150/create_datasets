@@ -191,7 +191,7 @@ class PredictWorker(QThread):
 
 # 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
 # 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
-SELFTEST_CHECKS = 135
+SELFTEST_CHECKS = 136
 
 
 def build_info() -> str:
@@ -1682,6 +1682,21 @@ class MainWindow(QMainWindow):
                 "root 多边形是**每条折线一个**：现在一条折线都没有，存出来这张图的 root "
                 "标注会是空的（训练时会当成「这张图没有根」的负样本）。\n\n"
                 "要回去画折线吗？（按 G 可以照着当前掩码自动起草）",
+                QMessageBox.Cancel | QMessageBox.Save, QMessageBox.Cancel)
+            if r != QMessageBox.Save:
+                return False
+        # **反过来的情况同样要拦**：有折线、但掩码一个像素都没有。那不是"这张图没有根"，
+        # 多半是关掉「预测」/清掉红层之后就存了盘 —— 存出去 root 真值是空的，训练会当成
+        # **负样本**（把有根学成没根）。2026-10-11 在 datasets\ 里抓到一张 plant_S001-3：
+        # json 里 40 个 root 多边形，masks\ 那张 PNG 却是全黑。
+        if doc.polylines and not doc.final_mask().any():
+            r = QMessageBox.warning(
+                self, "掩码是空的",
+                "这张图有折线，但掩码一个像素都没有 —— 存出去的 root 真值会是空的，"
+                "训练会把它当成「这张图没有根」的**负样本**。\n\n"
+                "是不是关掉了「预测」或清掉了红层？要么先照着折线把根涂出来"
+                "（切到「画折线」按 G 也能照着折线起草一版），要么这张图先别存。\n\n"
+                "（这张图**确实**没有根、就是要当负样本时，选「仍然保存」）",
                 QMessageBox.Cancel | QMessageBox.Save, QMessageBox.Cancel)
             if r != QMessageBox.Save:
                 return False
@@ -3258,6 +3273,11 @@ def run_selftest(args):
               f"{len(d4.polylines)} 条")
         c.repaint()
         check("空掩码也能画（paintEvent 跑通）", int(d4.builder.frame[:, :, :3].max()) > 0)
+        # 有折线、但掩码全空 —— 存出去就是"这张图没有根"的负样本，必须拦一下
+        # （2026-10-11 在 datasets\ 里抓到一张真的：40 个多边形 + 全黑掩码）
+        win.set_dirty(False)
+        check("有折线但掩码全空：存盘被拦下（不该存成负样本）",
+              win.save(go_next=False) is False)
         d4.store.begin_stroke()
         d4.store.paint_segment(500, 500, 900, 500, 40, core.MODE_ADD)   # 涂在那条折线旁边
         d4.store.end_stroke()
