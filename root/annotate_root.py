@@ -195,7 +195,7 @@ class PredictWorker(QThread):
 
 # 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
 # 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
-SELFTEST_CHECKS = 145
+SELFTEST_CHECKS = 141
 
 
 def build_info() -> str:
@@ -1119,7 +1119,6 @@ class MainWindow(QMainWindow):
         self._make_toolbar()
 
         self._init_model()
-        self._sync_from_labelme()      # 对一遍 datasets\ 里的 json 有没有被 labelme 改过
         self._scan()
         self.resize(1560, 980)
         if self._startup_note:
@@ -1171,42 +1170,6 @@ class MainWindow(QMainWindow):
         # （拷了一半、只留了 hparams）不该让工具直接起不来（2026-10-11 踩到）
         cands = self._model_candidates()
         return cands[-1] if cands else None
-
-    def _sync_from_labelme(self):
-        """启动时对一遍：`datasets\\<名>.json` 有没有被工具外面改过（labelme）。
-
-        工具**从不读那个 json**（折线/掩码只从缓存读），所以你在 labelme 里改完工具里看不到，
-        而且工具里一按 Ctrl+S 就把它整份重写、改动就没了。这里逐张比**指纹**（缓存里存着
-        "我导出时那版 json 的 sha1"，见 `meta_for_save` 的 src_json）：
-        指纹不一样 = 那份 json 被外面改过 -> 按它更新缓存（"用最新版"），并在终端写出来。
-
-        **不用时间**做判据：`--backfill-masks` 会重写 json 却不写缓存，于是"json 比缓存新"
-        却什么都没变 —— 按时间会白白重导一遍（还会把概率图冲掉）。
-        """
-        if self.args.selftest:
-            return                      # 自检自己测（第 10 段），别搅了它第 6 段的初始状态
-        d = Path(self.args.datasets or IO.DATASETS_DIR)
-        if not d.is_dir() or self.doc is not None:
-            return
-        n_ok = 0
-        for js in sorted(d.glob("*.json")):
-            import config as _cfg
-            img = next((p for p in d.glob(f"{js.stem}.*")
-                        if p.suffix.lower() in _cfg.IMAGE_EXTS), None)
-            if img is None:
-                continue
-            state, msg = IO.sync_from_labelme(self.cache_dir, js.stem, js, img,
-                                              self.model_name)
-            if state == "ok":
-                print(f"[启动同步] {js.stem}: 按 datasets 里的 json 更新了缓存 —— {msg}")
-                n_ok += 1
-            elif state == "bad":
-                print(f"[启动同步] {js.stem}: {msg}")
-        if n_ok:
-            # 控制台看不到时（run.bat 是 pythonw）也得知道一声
-            self._startup_note = "；".join(
-                x for x in (self._startup_note,
-                            f"启动同步：{n_ok} 张按 labelme 改过的 json 更新了缓存") if x)
 
     def _load_model(self, model_arg=None):
         """加载模型。成功返回 `(True, "")`，失败返回 `(False, 原因)`。
@@ -1790,10 +1753,7 @@ class MainWindow(QMainWindow):
                                     kept["check"], bool(kept["check"]), kept["stems"],
                                     doc.polylines, prob=doc.prob,
                                     poly_width=doc.poly_width,
-                                    roi_box=doc.roi_box, roi_ok=doc.roi_ok,
-                                    # 记下"我刚写的这版 json"的指纹：启动同步靠它判断
-                                    # datasets 里的 json 有没有被外面改过
-                                    src_json=IO.file_hash(out["json"]))
+                                    roi_box=doc.roi_box, roi_ok=doc.roi_ok)
             IO.save_cache(doc.cache_dir, doc.stem, doc.store, meta)
         except Exception as e:
             QMessageBox.critical(self, "保存失败", f"{e}\n{traceback.format_exc()}")
@@ -3462,60 +3422,6 @@ def run_selftest(args):
         else:
             IO.SETTINGS_PATH.write_bytes(_saved_settings3)
 
-    print("== 10. 启动同步：datasets 里的 json 被外面改过 -> 用最新版 ==")
-    _saved_settings4 = (IO.SETTINGS_PATH.read_bytes()
-                        if IO.SETTINGS_PATH.exists() else None)
-    _sstem = imgs[0].stem
-    _sjs = Path(args.datasets) / f"{_sstem}.json"
-    _scdir = IO.cache_dir("selftest")
-    _old_sjs = _sjs.read_text(encoding="utf-8") if _sjs.exists() else None
-    try:
-        def _write_js(n_line):
-            _sjs.write_text(json.dumps({
-                "version": "6.0.0", "flags": {}, "imageData": None,
-                "imagePath": imgs[0].name, "imageHeight": int(img.shape[0]),
-                "imageWidth": int(img.shape[1]),
-                "shapes": [{"label": "root", "shape_type": "linestrip",
-                            "points": [[10.0, 10.0], [400.0, 400.0], [800.0, 400.0]]}
-                           for _ in range(n_line)]}, ensure_ascii=False),
-                encoding="utf-8")
-
-        _write_js(1)
-        _st = core.MaskStore(np.zeros((img.shape[0], img.shape[1]), np.uint8))
-        IO.save_cache(_scdir, _sstem, _st,
-                      IO.meta_for_save("selftest", img.shape, _sstem, imgs[0].name,
-                                       0.1, None, False, [], [[(1.0, 1.0), (2.0, 2.0)]],
-                                       src_json=IO.file_hash(_sjs)))
-        st, msg = IO.sync_from_labelme(_scdir, _sstem, _sjs, imgs[0], "selftest")
-        check("json 没动过（指纹一样）-> 不同步", st == "same", msg)
-
-        _write_js(3)                       # 外面把 json 改了
-        st, msg = IO.sync_from_labelme(_scdir, _sstem, _sjs, imgs[0], "selftest")
-        _after = IO.load_cache(_scdir, _sstem, "selftest")
-        check("json 被外面改过 -> 按它更新缓存（用最新版）",
-              st == "ok" and _after is not None
-              and len(_after["meta"].get("polylines") or []) == 3
-              and int((_after["pred"] > 0).sum()) > 0, f"{st}: {msg}")
-        check("同步会记下新指纹（下次不再重导）",
-              IO.sync_from_labelme(_scdir, _sstem, _sjs, imgs[0], "selftest")[0] == "same")
-
-        with open(IO.cache_paths(_scdir, _sstem)["meta"], encoding="utf-8") as _f:
-            _m = json.load(_f)
-        _m.pop("src_json")
-        with open(IO.cache_paths(_scdir, _sstem)["meta"], "w", encoding="utf-8") as _f:
-            json.dump(_m, _f, ensure_ascii=False)
-        st, msg = IO.sync_from_labelme(_scdir, _sstem, _sjs, imgs[0], "selftest")
-        check("老缓存（没记指纹）不乱动，提示手动导", st == "same" and "老缓存" in msg, msg)
-    finally:
-        if _old_sjs is None:
-            _sjs.unlink(missing_ok=True)
-        else:
-            _sjs.write_text(_old_sjs, encoding="utf-8")
-        if _saved_settings4 is None:
-            IO.SETTINGS_PATH.unlink(missing_ok=True)
-        else:
-            IO.SETTINGS_PATH.write_bytes(_saved_settings4)
-
     # 项数当"版本指纹"用（F1 里会显示）：别人拷来的旧副本报错时报一句"我这 141 项"就能
     # 分辨。改了自检没改 SELFTEST_CHECKS 的话，这条会失败 —— 别让它悄悄过期。
     check(f"自检项数 = SELFTEST_CHECKS（{SELFTEST_CHECKS}，版本指纹）",
@@ -3650,17 +3556,6 @@ def run_backfill_masks(args):
             check_box=meta.get("check_box"),
             src_image=p, datasets_dir=args.datasets, move_pictures=False,
             poly_width=meta.get("poly_width"))
-        # 这份 json 是**我们自己刚写的**：把指纹记进缓存，免得下次启动把它当"外面改过"
-        _mp = IO.cache_paths(cdir, p.stem)["meta"]
-        if _mp.exists():
-            try:
-                with open(_mp, encoding="utf-8") as _f:
-                    _body = json.load(_f)
-                _body["src_json"] = IO.file_hash(out["json"])
-                with open(_mp, "w", encoding="utf-8") as _f:
-                    json.dump(_body, _f, ensure_ascii=False, indent=1)
-            except Exception as _e:
-                print(f"        (fingerprint not saved: {_e})")
         print(f"  {p.stem}: root 多边形 {out['n_root_poly']} 个 / 折线 "
               f"{out['n_polyline']} 条 -> {out['json'].name} + masks/")
         n_ok += 1

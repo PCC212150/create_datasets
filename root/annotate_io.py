@@ -281,112 +281,6 @@ def save_cache(cdir, stem, store, meta: dict):
         json.dump(body, f, ensure_ascii=False, indent=1)
 
 
-# ---------------------------------------------------------------- labelme 反向导入
-def read_labelme_shapes(json_path):
-    """读 labelme json -> (root 折线, root 多边形, stem 多边形, check 外接矩形)。
-
-    **不用 `common.labelme.parse_other`**：它在"折线 + 多边形同名并存"时只给多边形，
-    折线就丢了 —— 而工具缓存里**两样都要**（折线=中心线，负责根长和分区；多边形=轮廓，
-    栅格化成掩码）。口径仍和它一致：折线至少 2 点、多边形至少 3 点、check 取外接矩形。
-    """
-    with open(json_path, encoding="utf-8") as f:
-        body = json.load(f)
-    lines, polys, stems, check = [], [], [], None
-    for s in body.get("shapes") or []:
-        label = (s.get("label") or "").strip()
-        stype = (s.get("shape_type") or "").strip()
-        pts = [(float(p[0]), float(p[1])) for p in (s.get("points") or [])]
-        if label == "root" and stype in ("linestrip", "line") and len(pts) >= 2:
-            lines.append(pts)
-        elif label == "root" and stype == "polygon" and len(pts) >= 3:
-            polys.append(pts)
-        elif label == "stem" and len(pts) >= 3:
-            stems.append(pts)
-        elif label == "check_background" and pts:
-            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-            check = (min(xs), min(ys), max(xs), max(ys))
-    return lines, polys, stems, check
-
-
-def mask_from_labelme(lines, polys, shape):
-    """root 掩码：有多边形按多边形栅格化（真实轮廓）；只有折线按带宽描（=膨胀）。"""
-    from common import gt_mask
-    h, w = shape
-    if polys:
-        m = gt_mask.draw_polygons_at(polys, (w, h))      # 入参已是原图尺度
-        return m.astype(np.uint8) * 255, "多边形栅格化"
-    import cv2
-    m = np.zeros((h, w), np.uint8)
-    for line in lines:
-        cv2.polylines(m, [np.round(np.asarray(line, np.float32)).astype(np.int32)],
-                      False, 255, thickness=int(config.MASK_LINE_WIDTH),
-                      lineType=cv2.LINE_8)
-    return m, f"只有折线，按 {int(config.MASK_LINE_WIDTH)}px 带宽描（=膨胀）"
-
-
-def sync_from_labelme(cdir, stem, json_path, image_path, model_name,
-                      force=False, min_gap=1.0):
-    """把 labelme 改过的 json 反向导入缓存。返回 `(state, message)`。
-
-    state: `"ok"` 导了 / `"same"` 缓存不比 json 旧（工具里可能有更新的东西，跳过）/
-           `"empty"` json 里没有 root / `"bad"` 读不了 / `"noimg"` 找不到原图。
-
-    启动时的自动同步（`MainWindow._sync_from_labelme`）和 `import_labelme.py` 共用这一份。
-    """
-    json_path, image_path = Path(json_path), Path(image_path)
-    cp = cache_paths(Path(cdir), stem)
-    if cp["meta"].exists() and not force:
-        try:
-            with open(cp["meta"], encoding="utf-8") as f:
-                old_meta = json.load(f)
-        except Exception:
-            old_meta = {}
-        recorded = old_meta.get("src_json")
-        if recorded is None:
-            return "same", ("缓存里没记它对应哪版 json（老缓存）："
-                            "想导就手动跑 import_labelme.py --force")
-        if recorded == file_hash(json_path):
-            return "same", "和缓存里那份一模一样（没改过）"
-    try:
-        with open(json_path, encoding="utf-8") as f:
-            raw = json.load(f)
-        lines, polys, stems, check = read_labelme_shapes(json_path)
-    except Exception as e:
-        return "bad", f"读不了（{type(e).__name__}: {e}）"
-    if not lines and not polys:
-        return "empty", "json 里没有 root 折线/多边形"
-    from PIL import Image
-    with Image.open(image_path) as im:
-        w, h = im.size
-    jw, jh = raw.get("imageWidth"), raw.get("imageHeight")
-    if jw and jh and (int(jw), int(jh)) != (w, h):
-        return "bad", f"标注尺寸 {int(jw)}x{int(jh)} 与图片 {w}x{h} 不一致（会整体错位）"
-
-    mask, how = mask_from_labelme(lines, polys, (h, w))
-    note = ""
-    if not lines and polys:
-        # 只有多边形没有折线（在 labelme 里画的多边形）：用工具自己那套骨架化起草折线
-        # （= `G` 的同一份实现），不然这张图在工具里一条折线都没有
-        from common.skeleton_stats import analyze_mask_ex
-        st = analyze_mask_ex(mask > 0, spur=config.PRED_SPUR_LENGTH,
-                             min_len=config.MIN_ROOT_LENGTH, with_paths=True)
-        lines = [list(map(tuple, p)) for p in st["paths"] if len(p) >= 2]
-        note = f"；没有折线，骨架化起草了 {len(lines)} 条（= G 那套）"
-
-    import annotate_core as _core          # 只为拿 MaskStore（它不 import 本模块，安全）
-    store = _core.MaskStore(mask)          # 红层 = 这份标注；绿蓝留空
-    meta = meta_for_save(model_name, (h, w), stem, image_path.name, DEFAULT_LOW_THRESH,
-                         check, check is not None, stems, lines,
-                         roi_box=check, roi_ok=check is not None,
-                         src_json=file_hash(json_path))   # 记下这版 json，免得下次重导
-    # **旧的概率图要删掉**：现在红层是"你的标注"，概率图却是上一次模型预测的 ——
-    # 留着的话按一下 `[` `]`（预测松紧）就会拿模型的红层把导入的标注覆盖掉
-    cp["prob"].unlink(missing_ok=True)
-    save_cache(Path(cdir), stem, store, meta)      # 不传 prob：没有概率图（调不了松紧）
-    return "ok", (f"掩码 {int((mask > 0).sum())} px（{how}）｜折线 {len(lines)} 条｜"
-                  f"stem {len(stems)}｜check {'有' if check else '无'}{note}")
-
-
 # ---------------------------------------------------------------- 折线 -> 多边形
 def _line_fingerprint(polylines) -> str:
     """折线集合的指纹，用来判断"分区要不要重算"。"""
@@ -816,20 +710,9 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
             "image_path": dst_img if dst_img is not None else src_image}
 
 
-def file_hash(path) -> str:
-    """文件内容的 sha1（用来判断"这份 json 还是不是我导出时那一版"）。"""
-    import hashlib
-    h = hashlib.sha1()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def meta_for_save(model_name, img_shape, stem, image_name, low_thresh,
                   check_box, check_ok, stem_polys, polylines,
-                  prob=None, poly_width=None, roi_box=None, roi_ok=None,
-                  src_json=None):
+                  prob=None, poly_width=None, roi_box=None, roi_ok=None):
     """攒一份缓存用的元信息（与 load_cache 读回的字段一一对应）。
 
     两组别混：
@@ -848,8 +731,4 @@ def meta_for_save(model_name, img_shape, stem, image_name, low_thresh,
         "roi_ok": bool(roi_ok) if roi_ok is not None else bool(check_ok),
         "polylines": [list(map(list, p)) for p in polylines],
         "prob": prob,
-        # **导出时那版 json 的 sha1**：下次启动同步就靠它判断"datasets 里的 json
-        # 还是不是我写的那份"。不能用时间 —— `--backfill-masks` 会重写 json 但不写缓存，
-        # 于是"json 比缓存新"却什么都没变，按时间就会白白重导一遍（2026-10-11 真踩过）。
-        "src_json": src_json,
     }
