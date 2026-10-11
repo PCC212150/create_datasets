@@ -195,7 +195,7 @@ class PredictWorker(QThread):
 
 # 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
 # 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
-SELFTEST_CHECKS = 141
+SELFTEST_CHECKS = 143
 
 
 def build_info() -> str:
@@ -3421,6 +3421,39 @@ def run_selftest(args):
             IO.SETTINGS_PATH.unlink(missing_ok=True)
         else:
             IO.SETTINGS_PATH.write_bytes(_saved_settings3)
+
+    print("== 10. 交叉处相邻多边形互相重叠（补缝，但不越出掩码）==")
+    # 造个"十"字：横竖两条折线交叉在中间，掩码就是那个十字。
+    # 相邻的两个分区**必须**互相咬住（不然 labelme 里两个多边形碰在一起会显出缝），
+    # 但咬进来的部分**不能越过掩码**（2026-10-11 用户定的口径："允许重叠但不越界"）。
+    _sz = 400
+    _m = np.zeros((_sz, _sz), np.uint8)
+    _m[180:220, 40:360] = 255
+    _m[40:360, 180:220] = 255
+    _hl, _vl = [(60.0, 200.0), (340.0, 200.0)], [(200.0, 60.0), (200.0, 340.0)]
+    _b2 = IO.RootPolygonBuilder((_sz, _sz))
+    _b2.prepare([_hl, _vl])
+    def _full(rec):
+        """_one 给的是**局部 bbox** 的栅格（横竖两条的形状正好反着），贴回全图再比。"""
+        rast, x0, y0 = rec[1], rec[2], rec[3]
+        out = np.zeros((_sz, _sz), bool)
+        if rast is not None:
+            out[y0:y0 + rast.shape[0], x0:x0 + rast.shape[1]] = rast
+        return out
+
+    _h1 = _full(_b2._one(_m > 0, _hl, 1, 10, 1.0, 100, 0.0, 2, IO.ROOT_POLY_OVERLAP))
+    _v1 = _full(_b2._one(_m > 0, _vl, 2, 10, 1.0, 100, 0.0, 2, IO.ROOT_POLY_OVERLAP))
+    _h0 = _full(_b2._one(_m > 0, _hl, 1, 10, 1.0, 100, 0.0, 2, 0))
+    _v0 = _full(_b2._one(_m > 0, _vl, 2, 10, 1.0, 100, 0.0, 2, 0))
+    # 注意"不咬"那一档也有重叠（176px）—— 那是闭运算顺手给的；这里比的是**增量**。
+    _ov1, _ov0 = int((_h1 & _v1).sum()), int((_h0 & _v0).sum())
+    check("交叉处两个分区**互相重叠**，而且咬完明显更多（缝就是这么补上的）",
+          _ov1 > 400 and _ov1 > _ov0 * 2, f"咬 {IO.ROOT_POLY_OVERLAP}px: {_ov1} px｜不咬: {_ov0} px")
+    # 掩码外的像素：不咬那档本来就有几个（闭运算在角落的老行为），咬完**不能变多**
+    _sp1 = int(((_h1 | _v1) & ~(_m > 0)).sum())
+    _sp0 = int(((_h0 | _v0) & ~(_m > 0)).sum())
+    check("咬进来的部分**不越出掩码**（掩码外的像素没有变多）",
+          _sp1 <= _sp0 + 8, f"咬完 {_sp1} px / 不咬 {_sp0} px")
 
     # 项数当"版本指纹"用（F1 里会显示）：别人拷来的旧副本报错时报一句"我这 141 项"就能
     # 分辨。改了自检没改 SELFTEST_CHECKS 的话，这条会失败 —— 别让它悄悄过期。

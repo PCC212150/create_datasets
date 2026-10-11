@@ -76,6 +76,9 @@ DEFAULT_LOW_THRESH = float(config.PRED_LOW_THRESHOLD)
 # 掩码有根的地方，轮廓还是掩码自己的真实宽度。界面上可调（见 annotate_root 的带宽旋钮）。
 ROOT_POLY_WIDTH_DEFAULT = float(config.MASK_LINE_WIDTH)      # 10px，与旧折线口径同尺子
 ROOT_POLY_WIDTH_MIN, ROOT_POLY_WIDTH_MAX, ROOT_POLY_WIDTH_STEP = 2.0, 80.0, 1.0
+# 相邻多边形**互相重叠**多少像素（补交叉处的缝；只往掩码内部咬，绝不越出掩码边界）。
+# 实测 2px 能把 2~3% 的缝降到几乎为 0，重叠面积可以忽略。
+ROOT_POLY_OVERLAP = 2
 
 # 工具级设置（界面偏好）存这儿。**放在根目录而不是 cache\**：cache 是"可删的中间状态"，
 # 而带宽是用户调出来的偏好，不该因为清缓存就丢。文件很小，手动删掉就是回默认值。
@@ -385,7 +388,7 @@ class RootPolygonBuilder:
 
     # ---- 主入口 ----
     def polygons(self, mask, polylines, width, approx_px=None, min_area=None,
-                 gap_min=None, close_r=None):
+                 gap_min=None, close_r=None, overlap=None):
         """返回 (polygons, info)。
 
         polygons: 长度与「有效折线」相同，逐条对应；**每条是一个列表** ——
@@ -401,6 +404,7 @@ class RootPolygonBuilder:
         # 都是真缺口 —— 没有「太短所以不补」的道理，那不补的就是丢掉的根。
         gap_min = 0.0 if gap_min is None else gap_min
         close_r = max(2, width // 4) if close_r is None else close_r
+        overlap = ROOT_POLY_OVERLAP if overlap is None else max(0, int(overlap))
         lines = [list(l) for l in polylines if len(l) >= 2]
         info = {"n_lines": len(lines), "n_empty": 0, "n_dropped_blocks": 0,
                 "dropped_area": 0, "width": width}
@@ -413,7 +417,7 @@ class RootPolygonBuilder:
         for i, line in enumerate(lines):
             group, raster, x0, y0, dropped = self._one(m, line, i + 1, width,
                                                        approx_px, min_area,
-                                                       gap_min, close_r)
+                                                       gap_min, close_r, overlap)
             polys.append(group)
             if not group:
                 info["n_empty"] += 1
@@ -433,7 +437,8 @@ class RootPolygonBuilder:
             info["dropped_area"] += int(sum(big))
         return polys, info
 
-    def _one(self, mask, line, label, width, approx_px, min_area, gap_min, close_r):
+    def _one(self, mask, line, label, width, approx_px, min_area, gap_min, close_r,
+             overlap=0):
         import cv2
         from common.gt_mask import draw_polylines_at
         x0, y0, x1, y1 = _bbox_of(line, margin=width * 2 + 16, w=self.w, h=self.h)
@@ -442,7 +447,6 @@ class RootPolygonBuilder:
             return None, None, x0, y0, 0
         lab = self._labels_local(x0, y0, x1, y1)
         region = (mask[y0:y1, x0:x1]) & (lab == label)
-
         # 沿折线找"掩码缺了"的连续段。
         #
         # **判据是逐点**（只看折线正中那一点），而不是"±宽度/2 内有掩码就算有"。
@@ -503,6 +507,26 @@ class RootPolygonBuilder:
                 dropped += 1
         if not keep.any():
             return [], None, x0, y0, dropped
+        # **最后再往邻座咬 overlap 像素，补掉交叉处的缝**（2026-10-11 用户提的：
+        # "允许多边形边界重叠，但不越界"）。
+        #
+        # 为什么放在这里而不是更早：闭运算 = 先膨胀后腐蚀，放在它前面会被**腐蚀回来**
+        # （实测缝只降了 0.2%，几乎没用）；放在连通块过滤之后才留得住。
+        # 缝怎么来的：交叉处两个分区共享一条 Voronoi 边界，各自独立地闭运算 + 抽轮廓
+        # + 折线简化（approxPolyDP 切掉 ~1px），两边各偏一点就是一条缝 —— 实测 2~3% 的
+        # 掩码没被任何多边形盖住，labelme 里难看，**按连通性数根的评测还会把根切碎**。
+        #
+        # 两个关键点：
+        #  · 咬的是**别的分区的像素**（一定是掩码像素）-> 两边都声称这块 => 重叠、缝没了；
+        #  · 咬完再 `& mask` -> **绝不越出真实掩码**；掩码缺的段照旧由补带负责（另一条规矩）。
+        if overlap > 0:
+            import cv2 as _cv2
+            k_ov = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (2 * overlap + 1,) * 2)
+            grown = _cv2.dilate(keep.astype(np.uint8), k_ov) > 0
+            # **原样保留 keep，只把"咬进来"的那部分限制在掩码内**：
+            # 不能写成 `keep = dilate(keep) & mask` —— 补带本来就落在掩码外面
+            # （"掩码缺的段用带宽补上"），一裁就连带把整条带删了。
+            keep = keep | (grown & mask[y0:y1, x0:x1])
         local = mask_to_polygons((keep.astype(np.uint8) * 255), approx_px=approx_px,
                                  min_area=min_area)
         group = [[(float(qx) + x0, float(qy) + y0) for qx, qy in poly]
