@@ -192,6 +192,9 @@ def main(argv=None):
     try:
         model_name = IO.resolve_model(model_name)[1][0]
     except SystemExit:
+        if args.model:
+            raise SystemExit(f"[错误] --model {args.model!r} 解析不了（没有权重？）。"
+                             f"先确认 model\\ 下的文件夹名，再重跑。")
         print(f"[提示] settings.json 里记的模型 {model_name!r} 已经不在了，退回最新那个")
         model_name = IO.resolve_model(None)[1][0]
     print(f"用的模型：{model_name}（界面切过模型的话，这里跟的是同一个）")

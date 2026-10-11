@@ -38,15 +38,17 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
                     B 在鼠标处**断成两条**（交叉处用）  J 和鼠标附近那条**接成一条**
     Ctrl+S         保存并跳下一张        PgDn / PgUp  下一张 / 上一张
     F5             重新扫描目录（在资源管理器里删/加了图片之后用）
-    工具栏「丢弃stem/丢弃check」  本图不写这两个标注（再点恢复）——故意没绑快捷键
     工具栏「预测」开关           关掉就不跑模型：没缓存的图给空掩码从零标（折线照样搬）
+                                 当前这张的红层也一起清掉（Ctrl+Z 可恢复）
     工具栏最左「模型」下拉框     换模型立刻生效（人做的折线/涂改跟着走，见 readme「切换模型」）
     Ctrl+R         清空所有修改，回到纯预测（可撤销）      F1 键位帮助
 
 ## 产物
 
     datasets\<名>.json      labelme 格式：root 多边形（**每条折线一个**：轮廓取自掩码，
-                            掩码缺的段用带宽补上）+ root 折线（根长）+ stem + check_background
+                            掩码缺的段用带宽补上）+ root 折线（根长）。
+                            **工具不产出 stem/check_background**（2026-10-11 起）：json 里
+                            已有的话原样保留，labelme 标的那些靠这样保住
     datasets\<名>.jpg       原图（硬链接过来的，让 datasets\ 直接能训练）
     datasets\overlay\<名>_overlay.jpg   原图 + 最终掩码 + 折线的验收图
     cache\<模型名>\         中间状态（掩码/概率图/折线），删了只是重新预测
@@ -118,13 +120,15 @@ class Doc:
         self.cache_dir = Path(cache_dir)
         self.store = None
         self.prob = None
+        # ---- 标注里的 stem / check（**只读**：labelme 标的，工具显示 + 存盘照原样留着）----
         self.check_box = None
         self.check_ok = False
-        self.root_ok = True
         self.stem_polys = []
+        # ---- 模型的内部 ROI（不写进标注，只用来把根限制在托盘范围内）----
+        self.roi_box = None
+        self.roi_ok = False
+        self.root_ok = True
         self.low_thresh = IO.DEFAULT_LOW_THRESH
-        self.drop_stem = False
-        self.drop_check = False
         self.polylines = []            # 已完成的折线 list[list[(x, y)]]
         self.cur_line = []             # 正在画的那条
         # 自上次起草以来折线有没有被**手工改过**（拖点/插点/删/断/手画）。
@@ -191,7 +195,7 @@ class PredictWorker(QThread):
 
 # 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
 # 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
-SELFTEST_CHECKS = 136
+SELFTEST_CHECKS = 139
 
 
 def build_info() -> str:
@@ -322,7 +326,7 @@ class Canvas(QWidget):
         doc, vp = self.doc, self.doc.vp
         p.setRenderHint(QPainter.Antialiasing, True)
         # 检查框（预测的检查范围，绿框）
-        if doc.check_box is not None and doc.check_ok and not doc.drop_check:
+        if doc.check_box is not None and doc.check_ok:
             x0, y0 = vp.image_to_screen(doc.check_box[0], doc.check_box[1])
             x1, y1 = vp.image_to_screen(doc.check_box[2], doc.check_box[3])
             pen = QPen(COLOR_BOX, 2)
@@ -1157,7 +1161,15 @@ class MainWindow(QMainWindow):
         命令行点名了就一切以命令行为准（脚本/快捷方式跑的那次不该被上次在界面里
         点的选择改掉）；没点名才用记住的。
         """
-        return self.args.model or IO.load_settings().get("model") or None
+        if self.args.model:
+            return self.args.model
+        remembered = IO.load_settings().get("model")
+        if remembered:
+            return remembered
+        # 默认"取最新"时**只看有 .pth 的**：往 model\ 里丢一个没权重的文件夹
+        # （拷了一半、只留了 hparams）不该让工具直接起不来（2026-10-11 踩到）
+        cands = self._model_candidates()
+        return cands[-1] if cands else None
 
     def _load_model(self, model_arg=None):
         """加载模型。成功返回 `(True, "")`，失败返回 `(False, 原因)`。
@@ -1524,13 +1536,15 @@ class MainWindow(QMainWindow):
                                    pred.get("add"), pred.get("dele"))
         doc.prob = pred["prob"]
         meta = pred.get("meta") or {}
-        doc.check_box = pred.get("check_box", meta.get("check_box"))
-        doc.check_ok = pred.get("check_ok", meta.get("check_ok", False))
+        # 标注里的 stem/check：**只从缓存（= 标注）读**，不从预测结果读 —— 工具不再产出它们
+        doc.check_box = meta.get("check_box")
+        doc.check_ok = bool(meta.get("check_ok", False))
+        doc.stem_polys = meta.get("stem_polys", []) or []
+        # 模型的内部 ROI：老缓存的 roi_box 没有，退回当年的 check_box（那时它就是这个用途）
+        doc.roi_box = pred.get("roi_box", meta.get("roi_box", meta.get("check_box")))
+        doc.roi_ok = bool(pred.get("roi_ok", meta.get("roi_ok", meta.get("check_ok", False))))
         doc.root_ok = pred.get("root_ok", True)
-        doc.stem_polys = pred.get("stem_polys", meta.get("stem_polys", [])) or []
         doc.low_thresh = pred.get("low_thresh", meta.get("low_thresh", IO.DEFAULT_LOW_THRESH))
-        doc.drop_stem = bool(meta.get("drop_stem", False))
-        doc.drop_check = bool(meta.get("drop_check", False))
         doc.polylines = [list(map(tuple, l)) for l in meta.get("polylines", [])]
         # 恢复进来的折线不是"这次起草的原样结果"——它是别处来的成果，G 覆盖前必须问一句
         doc.polylines_loaded = bool(doc.polylines)
@@ -1571,11 +1585,14 @@ class MainWindow(QMainWindow):
         # 必须 copy：旧 doc 马上就要被丢掉，而且 MaskStore 的数组是**原地涂改**的
         add, dele = doc.store.add.copy(), doc.store.dele.copy()
         lines = [list(map(tuple, l)) for l in doc.polylines]     # 深拷，别和旧 doc 共享列表
-        if not (add.any() or dele.any() or lines or doc.drop_stem or doc.drop_check):
+        if not (add.any() or dele.any() or lines or doc.stem_polys or doc.check_box):
             return None
+        # 标注里的 stem/check 也一起搬：它们跟模型无关（labelme 标的），换模型不该丢
         return {"stem": doc.stem, "from": doc.model_name,
                 "add": add, "dele": dele, "polylines": lines,
-                "drop_stem": doc.drop_stem, "drop_check": doc.drop_check}
+                "stem_polys": [list(map(tuple, p)) for p in doc.stem_polys],
+                "check_box": list(doc.check_box) if doc.check_box else None,
+                "check_ok": bool(doc.check_ok)}
 
     @staticmethod
     def _cached_has_human(cached):
@@ -1585,7 +1602,7 @@ class MainWindow(QMainWindow):
         但对"我上次标的折线呢"这个问题等于没有 —— 判断标准必须是这个，不是"缓存文件在不在"。
         """
         meta = cached.get("meta") or {}
-        if meta.get("polylines") or meta.get("drop_stem") or meta.get("drop_check"):
+        if (meta.get("polylines") or meta.get("stem_polys") or meta.get("check_box")):
             return True
         for k in ("add", "dele"):
             arr = cached.get(k)
@@ -1626,8 +1643,9 @@ class MainWindow(QMainWindow):
         return {"stem": stem, "from": name,
                 "add": cached["add"], "dele": cached["dele"],
                 "polylines": [list(map(tuple, l)) for l in (meta.get("polylines") or [])],
-                "drop_stem": bool(meta.get("drop_stem")),
-                "drop_check": bool(meta.get("drop_check"))}
+                "stem_polys": [list(map(tuple, p)) for p in (meta.get("stem_polys") or [])],
+                "check_box": list(meta["check_box"]) if meta.get("check_box") else None,
+                "check_ok": bool(meta.get("check_ok", False))}
 
     def _apply_carry(self, res, carry, stem):
         """把搬运包并进这一次的预测结果（`_install` 之前调）。
@@ -1642,10 +1660,13 @@ class MainWindow(QMainWindow):
             return res
         out = dict(res)
         out["add"], out["dele"] = carry["add"], carry["dele"]
-        out["meta"] = {**(res.get("meta") or {}),
-                       "polylines": carry["polylines"],
-                       "drop_stem": carry["drop_stem"],
-                       "drop_check": carry["drop_check"]}
+        meta = {**(res.get("meta") or {}), "polylines": carry["polylines"]}
+        if carry.get("stem_polys"):                 # 标注里的茎/框：有才覆盖，别拿空的去顶
+            meta["stem_polys"] = carry["stem_polys"]
+        if carry.get("check_box"):
+            meta["check_box"] = carry["check_box"]
+            meta["check_ok"] = carry.get("check_ok", True)
+        out["meta"] = meta
         return out
 
     def _install_selftest(self, idx, carry=None, phase=0):
@@ -1702,10 +1723,12 @@ class MainWindow(QMainWindow):
                 return False
         t0 = time.time()
         try:
+            # stem / check_background **只认已有 json 里的**（labelme 标的、或以前存的），
+            # 工具自己不生成也不删。文档层看到的那份可能是模型的预测，绝不能写出去。
+            kept = self._kept_other_labels(doc)
             out = IO.save_annotation(
                 doc.stem, doc.image_name, doc.img.shape, doc.final_mask(),
-                doc.polylines, doc.stem_polys, doc.check_box,
-                drop_stem=doc.drop_stem, drop_check=doc.drop_check,
+                doc.polylines, stem_polygons=kept["stems"], check_box=kept["check"],
                 src_image=doc.path, datasets_dir=self.args.datasets,
                 poly_width=doc.poly_width, builder=doc.poly_builder,
                 move_pictures=not self.args.keep_pictures)
@@ -1713,10 +1736,11 @@ class MainWindow(QMainWindow):
             # （doc.cache_dir），取两个来源的话，换模型之后一个不慎就是
             # "新名字 + 旧目录"，也就是跨模型污染
             meta = IO.meta_for_save(doc.model_name, doc.img.shape, doc.stem,
-                                    doc.image_name, doc.low_thresh, doc.check_box,
-                                    doc.check_ok, doc.stem_polys, doc.drop_stem,
-                                    doc.drop_check, doc.polylines, prob=doc.prob,
-                                    poly_width=doc.poly_width)
+                                    doc.image_name, doc.low_thresh,
+                                    kept["check"], bool(kept["check"]), kept["stems"],
+                                    doc.polylines, prob=doc.prob,
+                                    poly_width=doc.poly_width,
+                                    roi_box=doc.roi_box, roi_ok=doc.roi_ok)
             IO.save_cache(doc.cache_dir, doc.stem, doc.store, meta)
         except Exception as e:
             QMessageBox.critical(self, "保存失败", f"{e}\n{traceback.format_exc()}")
@@ -1795,6 +1819,26 @@ class MainWindow(QMainWindow):
             self._recompute_polygons()
         self.flash(f"折线带宽 {w:.0f}px（已记住，后面每张图都用它）"
                    f"｜只影响掩码缺的地方，掩码有根的地方用掩码自己的宽度")
+
+    def _kept_other_labels(self, doc):
+        """已有 json 里的 stem / check_background —— 存盘时**原样保留**的那部分。
+
+        工具只管 root（2026-10-11 用户定的）：自己不产出 stem/check，但**也不删别人的**。
+        以前是用文档里的 stem_polys/check_box 直接写出去 —— 那两个字段从模型预测来，
+        等于每次存盘都把"模型猜的"写进标注；现在改成只认 json 里已有的。
+        """
+        p = Path(self.args.datasets or IO.DATASETS_DIR) / f"{doc.stem}.json"
+        if not p.exists():
+            return {"stems": (), "check": None}
+        try:
+            from common.labelme import parse_other
+            lab = parse_other(p, image_size=(doc.img.shape[1], doc.img.shape[0]),
+                              verbose=False)
+            return {"stems": [tuple(map(tuple, x)) for x in lab.stems],
+                    "check": tuple(lab.check_rect) if lab.check_rect else None}
+        except Exception as e:      # 读不了就当没有：宁可这次不写，也不乱写
+            print(f"[提示] {p.name} 里的 stem/check 没读出来（{e}），这次只写 root")
+            return {"stems": (), "check": None}
 
     def set_predict(self, on):
         """「预测」开关（工具栏上那个，工具级、记得住）。
@@ -1910,7 +1954,7 @@ class MainWindow(QMainWindow):
         if abs(new - doc.low_thresh) < 1e-9:
             return
         t0 = time.time()
-        mask, warn = IO.mask_from_prob(doc.prob, doc.check_box, doc.check_ok,
+        mask, warn = IO.mask_from_prob(doc.prob, doc.roi_box, doc.roi_ok,
                                        doc.img.shape[:2], new)
         old = doc.low_thresh
         doc.low_thresh = new
@@ -1943,19 +1987,6 @@ class MainWindow(QMainWindow):
         self.set_dirty(True)
         self.canvas.refresh(full=True)
         self.update_status()
-
-    def toggle_drop(self, which):
-        doc = self.doc
-        if doc is None:
-            return
-        if which == "stem":
-            doc.drop_stem = not doc.drop_stem
-        else:
-            doc.drop_check = not doc.drop_check
-        doc.dirty = True
-        self.update_status()
-        self.flash(f"本图 {'不写' if (doc.drop_stem if which == 'stem' else doc.drop_check) else '写回'}"
-                   f" {which} 标注（训练时该通道的损失会自动被屏蔽）")
 
     def toggle_layers(self, final_only=False):
         doc = self.doc
@@ -2039,10 +2070,6 @@ class MainWindow(QMainWindow):
                 # "松"是阈值变小，不是变大。
                 ("预测松一点（更粗）", "[ 阈值 −0.02", lambda: self.adjust_threshold(-0.02)),
                 ("预测紧一点（更细）", "] 阈值 +0.02", lambda: self.adjust_threshold(+0.02)),
-                ("丢弃stem", "本图不写 stem 标注（只能点这里，没有快捷键）",
-                 lambda: self.toggle_drop("stem")),
-                ("丢弃check", "本图不写 check_background 标注（只能点这里）",
-                 lambda: self.toggle_drop("check")),
                 ("重置修改", "Ctrl+R", self.reset_edits),):
             a = QAction(text, self)
             a.setToolTip(f"{text}（{tip}）" if tip else text)
@@ -2062,7 +2089,7 @@ class MainWindow(QMainWindow):
             "（折线/涂改照旧从别的模型的缓存里搬过来）\n"
             "开着 = 模型在没缓存的图上先预测一版红层给你改；**刚打开时会立刻把\n"
             "当前这张重算一遍**（折线/涂改跟着走）\n"
-            "没有快捷键（和「丢弃stem/check」一样，故意不绑，免得误按）")
+            "没有快捷键（和「丢弃」那类按钮一样，故意不绑，免得误按）")
         self.predict_action.toggled.connect(self.set_predict)
         self.predict_action.setShortcut("")
         anchor = dict(built).get("自动起草折线")
@@ -2137,8 +2164,6 @@ class MainWindow(QMainWindow):
              + (f"（丢 {doc.poly_info['n_dropped_blocks']} 块）"
                 if doc.poly_info and doc.poly_info.get("n_dropped_blocks") else "")
              ) if doc.polygons is not None else "",
-            "不要stem" if doc.drop_stem else "",
-            "不要check" if doc.drop_check else "",
             "不预测" if not self.predict_on else "",
             "未保存*" if doc.dirty else "",
         ]
@@ -2276,11 +2301,11 @@ def run_prefetch(args):
         store = core.MaskStore(res["pred"])
         IO.save_cache(cdir, p.stem, store,
                       IO.meta_for_save(names[0], img.shape, p.stem, p.name,
-                                       res["low_thresh"], res["check_box"],
-                                       res["check_ok"], res["stem_polys"],
-                                       False, False, [], prob=res["prob"]))
+                                       res["low_thresh"], None, False, [],
+                                       [], prob=res["prob"],
+                                       roi_box=res["roi_box"], roi_ok=res["roi_ok"]))
         print(f"[{i}/{len(imgs)}] {p.stem}: 根 {int((res['pred'] > 0).sum())} px, "
-              f"茎多边形 {len(res['stem_polys'])}, check {'OK' if res['check_ok'] else '失败'}"
+              f"检查范围 {'OK' if res['roi_ok'] else '失败'}"
               f" | {time.time() - t:.1f}s", flush=True)
     print(f"全部完成，用时 {time.time() - t0:.1f}s")
 
@@ -2324,10 +2349,12 @@ def run_selftest(args):
     print(f"  {path.name}: 根 {int((res['pred'] > 0).sum())} px, "
           f"{time.time() - t0:.2f}s ({device})")
     check("预测出前景", int((res["pred"] > 0).sum()) > 0)
-    check("预测的茎/检查框", len(res["stem_polys"]) > 0)
+    check("预测出检查范围（内部 ROI，不是标注）", res["roi_box"] is not None
+          and res["roi_ok"] is True, f"roi_box={res['roi_box']}")
+    check("预测**不再**产出 stem 多边形（工具只管 root）", "stem_polys" not in res)
 
     print("== 2. 阈值重算与默认口径一致 ==")
-    m2, warn = IO.mask_from_prob(res["prob"], res["check_box"], res["check_ok"],
+    m2, warn = IO.mask_from_prob(res["prob"], res["roi_box"], res["roi_ok"],
                                  img.shape[:2], IO.DEFAULT_LOW_THRESH)
     check("按默认阈值重算 == 原生掩码", bool((m2 == res["pred"]).all()))
 
@@ -2336,7 +2363,7 @@ def run_selftest(args):
     # 而且阈值 0 是"关掉滞回"的特例、会让掩码从最粗直接跳到最细。
     areas = {}
     for t in (IO.THRESH_MIN, 0.10, 0.30, 0.50):
-        m, _ = IO.mask_from_prob(res["prob"], res["check_box"], res["check_ok"],
+        m, _ = IO.mask_from_prob(res["prob"], res["roi_box"], res["roi_ok"],
                                  img.shape[:2], t)
         areas[t] = int((m > 0).sum())
     seq = [areas[t] for t in (IO.THRESH_MIN, 0.10, 0.30, 0.50)]
@@ -2392,7 +2419,7 @@ def run_selftest(args):
     # datasets\ 里那份是同一个 inode；但那是运气，不是设计）。
     args.keep_pictures = True
     out = IO.save_annotation(path.stem, path.name, img.shape, final, lines,
-                             res["stem_polys"], res["check_box"], src_image=path,
+                             stem_polygons=(), check_box=None, src_image=path,
                              datasets_dir=out_dir, move_pictures=False)
     print("  写出:", out["saved"])
     check("json 写出来了", out["json"].exists())
@@ -2419,9 +2446,13 @@ def run_selftest(args):
         _px = _ds.load_root_mask_png(_a, (arr.shape[1], arr.shape[0]))
         _m, _v = _ds.build_target_masks(_a, (arr.shape[1], arr.shape[0]), 10)
         # 覆盖后 root 通道应该跟掩码**逐位相同**（同尺寸时不缩放）
-        check("root_model 用掩码覆盖了 root 通道（且只动 root）",
-              _px is not None and bool((_m[:, :, 0] == _px).all()) and bool(_v.all()),
-              f"root {int(_m[:, :, 0].sum())} px / 掩码 {int(_px.sum()) if _px is not None else 0} px")
+        # 工具只管 root：json 里没有 stem/check，那两个通道就该是"无标签"（valid=0，
+        # 训练时损失被屏蔽）；root 通道照旧被像素掩码逐位覆盖。
+        check("root_model 用掩码覆盖 root 通道；没有标注的 stem/check 通道被屏蔽",
+              _px is not None and bool((_m[:, :, 0] == _px).all())
+              and float(_v[0]) == 1.0 and float(_v[1]) == 0.0 and float(_v[2]) == 0.0,
+              f"root {int(_m[:, :, 0].sum())} px / 掩码 {int(_px.sum()) if _px is not None else 0} px"
+              f" / valid={_v.tolist()}")
     sys.path.insert(0, str(ROOT / "_vendor"))
     from common.labelme import parse_other
     from common.gt_mask import draw_polygons_at
@@ -2429,7 +2460,23 @@ def run_selftest(args):
     check("回读 root 多边形数 == 导出的", len(lab.roots) == out["n_root_poly"],
           f"{len(lab.roots)}")
     check("回读到的 root 全是多边形", all(lab.root_polygons))
-    check("回读 stem / check", len(lab.stems) > 0 and lab.check_rect is not None)
+    check("json 里**没有** stem / check_background（工具只产出 root）",
+          len(lab.stems) == 0 and lab.check_rect is None,
+          f"stem {len(lab.stems)} / check {lab.check_rect}")
+    # 但**已有的**要原样保住：拿一份带 stem/check 的 json 再存一次，它俩必须还在
+    _pre = json.load(open(out["json"], encoding="utf-8"))
+    _pre["shapes"] += [
+        {"label": "stem", "shape_type": "polygon", "points": [[10.0, 10.0], [40.0, 10.0], [40.0, 40.0]], "flags": {}},
+        {"label": "check_background", "shape_type": "rectangle", "points": [[1.0, 2.0], [30.0, 40.0]], "flags": {}}]
+    with open(out["json"], "w", encoding="utf-8") as f:
+        json.dump(_pre, f, ensure_ascii=False)
+    IO.save_annotation(path.stem, path.name, img.shape, final, lines,
+                       stem_polygons=[((10.0, 10.0), (40.0, 10.0), (40.0, 40.0))],
+                       check_box=(1.0, 2.0, 30.0, 40.0), src_image=path,
+                       datasets_dir=out_dir, move_pictures=False)
+    _lab2 = parse_other(out["json"], image_size=(w, h))
+    check("已有 json 里的 stem / check 存盘后原样还在（标签页不碰它们）",
+          len(_lab2.stems) == 1 and _lab2.check_rect is not None)
     shapes = json.load(open(out["json"], encoding="utf-8"))["shapes"]
     n_line = sum(1 for s in shapes if s["shape_type"] == "linestrip")
     check("折线也写进 json 了", n_line == out["n_polyline"], f"{n_line} 条")
@@ -2460,7 +2507,7 @@ def run_selftest(args):
     src_fake = tmp_pics / path.name
     shutil.copy2(path, src_fake)                 # 假装这是"还没做的那张原图"
     IO.save_annotation(path.stem, path.name, img.shape, final, lines,
-                       res["stem_polys"], res["check_box"], src_image=src_fake,
+                       stem_polygons=(), check_box=None, src_image=src_fake,
                        datasets_dir=out_dir, move_pictures=True)
     check("做完的图从 pictures 里移走（源那份删掉）", not src_fake.exists())
     check("datasets 里那份还在、大小对得上",
@@ -2965,7 +3012,7 @@ def run_selftest(args):
                   IO.meta_for_save("selftest", img.shape, cache_stem, imgs[0].name,
                                    0.18, [1, 2, 3, 4], True, [[(5.0, 5.0), (6.0, 6.0),
                                                               (7.0, 7.0)]],
-                                   True, False, saved_lines,
+                                   saved_lines,
                                    # 概率图这儿仍然给上（调松紧要靠它重算红层）；
                                    # **但缺了也认这份缓存** —— 见下面那条 check
                                    prob=np.zeros((16, 16), np.float32)))
@@ -2983,9 +3030,9 @@ def run_selftest(args):
     check("重开一张有折线的图后按 G 会先拦一下",
           c.draft_needs_confirm() and not d2.polylines_edited and d2.polylines_loaded,
           f"polylines_edited={d2.polylines_edited} loaded={d2.polylines_loaded}")
-    check("丢弃标志 / 检查框 / 阈值还原",
-          d2.drop_stem is True and d2.drop_check is False
-          and list(d2.check_box) == [1, 2, 3, 4] and abs(d2.low_thresh - 0.18) < 1e-6)
+    check("检查框（标注里的）/ 阈值 / 内部 ROI 还原",
+          list(d2.check_box) == [1, 2, 3, 4] and abs(d2.low_thresh - 0.18) < 1e-6
+          and d2.roi_ok is True)
     c.repaint()
     check("接着改还能画（paintEvent 正常）", int(d2.builder.frame[:, :, :3].max()) > 0)
     # **缺概率图的缓存照样能用**：关掉「预测」从零标再存盘就是这种（没跑过模型），
@@ -2995,8 +3042,7 @@ def run_selftest(args):
     IO.cache_paths(IO.cache_dir("selftest"), cache_stem)["prob"].unlink(missing_ok=True)
     IO.save_cache(IO.cache_dir("selftest"), cache_stem, st0,
                   IO.meta_for_save("selftest", img.shape, cache_stem, imgs[0].name,
-                                   0.18, [1, 2, 3, 4], True, [], True, False,
-                                   saved_lines))          # 不给 prob = 不写概率图
+                                   0.18, [1, 2, 3, 4], True, [], saved_lines))  # 不给 prob
     win.set_dirty(False)
     win.open_image(0, force=True)
     d2b = win.doc
@@ -3027,6 +3073,14 @@ def run_selftest(args):
         check("模型候选：只要 model_* 且真有 .pth 的，按名排序",
               MainWindow._model_candidates(_mroot) == ["model_a", "model_b"],
               f"列出 {MainWindow._model_candidates(_mroot)}")
+        # 启动默认"取最新"时也只认有 .pth 的：往 model\ 里丢个没权重的文件夹
+        # （拷了一半、只留了 hparams）不该让工具起不来（2026-10-11 踩到）
+        _arg_saved = win.args.model
+        win.args.model = None
+        check("没有 --model、也没记住时：默认取**有 .pth 的**最新那个",
+              win._initial_model_arg() == MainWindow._model_candidates()[-1],
+              f"{win._initial_model_arg()} / 候选 {MainWindow._model_candidates()[-1:]}")
+        win.args.model = _arg_saved
 
         # ---- 控件行为 ----
         check("模型下拉框不抢键盘焦点（方向键要留给画布）",
@@ -3053,20 +3107,20 @@ def run_selftest(args):
         st_h.dele[6:8, 6:8] = 255
         fake_doc = types.SimpleNamespace(stem="X", store=st_h, model_name="model_A",
                                          polylines=[[(0.0, 0.0), (1.0, 1.0)]],
-                                         drop_stem=True, drop_check=False)
+                                         stem_polys=[[(2.0, 2.0), (3.0, 3.0), (4.0, 2.0)]],
+                                         check_box=[5, 6, 7, 8], check_ok=True)
         carry = win._snapshot_human(fake_doc)
         new_res = {"pred": np.zeros((10, 10), np.uint8), "prob": None, "low_thresh": 0.33,
                    "check_box": [1, 2, 3, 4], "check_ok": True,
                    "stem_polys": [[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]]}
         out = win._apply_carry(dict(new_res), carry, "X")
-        check("搬运：涂改 / 折线 / 丢弃标志原样过来",
+        check("搬运：涂改 / 折线 / 标注里的 stem+check 原样过来",
               bool((out["add"] == st_h.add).all()) and bool((out["dele"] == st_h.dele).all())
               and out["meta"]["polylines"] == [[(0.0, 0.0), (1.0, 1.0)]]
-              and out["meta"]["drop_stem"] is True)
-        check("搬运：红层/概率/阈值/检查框/茎全是新模型的（不搬旧的，才自洽）",
-              out["pred"] is new_res["pred"] and out["low_thresh"] == 0.33
-              and out["check_box"] == [1, 2, 3, 4]
-              and out["stem_polys"] == new_res["stem_polys"])
+              and out["meta"]["stem_polys"] == [[(2.0, 2.0), (3.0, 3.0), (4.0, 2.0)]]
+              and list(out["meta"]["check_box"]) == [5, 6, 7, 8])
+        check("搬运：红层/概率/阈值全是新模型的（那几样是模型的输出）",
+              out["pred"] is new_res["pred"] and out["low_thresh"] == 0.33)
         st_h.add[:] = 0
         check("搬运是拷贝不是引用（旧 store 再涂也不影响搬运包）", bool(carry["add"].any()))
         _other = win._apply_carry(dict(new_res), carry, "别的图")
@@ -3075,7 +3129,7 @@ def run_selftest(args):
         check("纯预测的图没有可搬的（返回 None，不该被标成未保存）",
               win._snapshot_human(types.SimpleNamespace(
                   stem="Y", store=core.MaskStore(np.zeros((4, 4), np.uint8)),
-                  polylines=[], drop_stem=False, drop_check=False)) is None)
+                  polylines=[], stem_polys=[], check_box=None)) is None)
 
         # ---- 打开一张图时去"别的模型"的缓存里捞人做的部分（换模型后不再看不见折线）----
         _other_dir = IO.CACHE_ROOT / "_selftest_other"
@@ -3085,7 +3139,7 @@ def run_selftest(args):
         _stem0 = imgs[0].stem
         IO.save_cache(_other_dir, _stem0, _st_h,
                       IO.meta_for_save("model_other", img.shape, _stem0, imgs[0].name,
-                                       0.2, [1, 2, 3, 4], True, [], False, False,
+                                       0.2, [1, 2, 3, 4], True, [],
                                        [[(11.0, 12.0), (13.0, 14.0)]],
                                        prob=np.zeros((8, 8), np.float32)))
         check("纯预测的缓存不算'人做的'（--prefetch 建的那种）",
@@ -3123,8 +3177,7 @@ def run_selftest(args):
             pred = np.zeros((h, w), np.uint8)
             pred[:h // 2] = 255                       # "新模型的红层"：上半张
             return {"pred": pred, "prob": np.zeros((4, 4), np.float32),
-                    "check_box": [11, 22, 33, 44], "check_ok": True, "root_ok": True,
-                    "stem_polys": [[(0.0, 0.0), (5.0, 0.0), (5.0, 5.0)]],
+                    "roi_box": [11, 22, 33, 44], "roi_ok": True, "root_ok": True,
                     "low_thresh": 0.33}
 
         def _fake_load(arg=None):
@@ -3139,7 +3192,9 @@ def run_selftest(args):
         h_img, w_img = win.doc.img.shape[:2]
         win.doc.store.add[10:40, 10:40] = 255         # 造点"人做的部分"
         win.doc.polylines = [[(1.0, 2.0), (3.0, 4.0)]]
-        win.doc.drop_stem = True
+        win.doc.stem_polys = [[(9.0, 9.0), (10.0, 10.0), (11.0, 9.0)]]
+        win.doc.check_box = (12, 13, 14, 15)
+        win.doc.check_ok = True
         old_pred = win.doc.store.pred.copy()
         check("switch_model 成功", win.switch_model("model_fake_B") is True)
         for _ in range(400):                          # 等预测线程 + done 信号落地
@@ -3153,11 +3208,11 @@ def run_selftest(args):
               d3 is not None and bool((d3.store.pred != old_pred).any())
               and int(d3.store.pred[:h_img // 2].min()) == 255,
               f"红层 {int((d3.store.pred > 0).sum())} px")
-        check("换模型后：涂改 / 折线 / 丢弃标志原样搬过来",
+        check("换模型后：涂改 / 折线 / 标注里的 stem+check 原样搬过来",
               bool((d3.store.add[10:40, 10:40] == 255).all()) and len(d3.polylines) == 1
-              and d3.drop_stem is True)
-        check("换模型后：阈值/检查框/茎来自新模型",
-              abs(d3.low_thresh - 0.33) < 1e-6 and list(d3.check_box) == [11, 22, 33, 44]
+              and len(d3.stem_polys) == 1 and tuple(d3.check_box) == (12, 13, 14, 15))
+        check("换模型后：阈值/内部 ROI 来自新模型，标注里的 stem/check 跟着人走",
+              abs(d3.low_thresh - 0.33) < 1e-6 and list(d3.roi_box) == [11, 22, 33, 44]
               and len(d3.stem_polys) == 1)
         check("搬过来的东西算未保存（不标脏会被静默丢掉）", d3.dirty is True)
         check("换模型后按 G 会先拦一下", win.canvas.draft_needs_confirm())
@@ -3235,7 +3290,7 @@ def run_selftest(args):
         IO.save_cache(_other2, _stem1,
                       core.MaskStore(np.zeros((img.shape[0], img.shape[1]), np.uint8)),
                       IO.meta_for_save("model_other2", img.shape, _stem1, imgs[0].name,
-                                       0.2, [1, 2, 3, 4], True, [], False, False,
+                                       0.2, [1, 2, 3, 4], True, [],
                                        # 折线要够长：3 个像素的那种在 1/4 尺度的分区图上会
                                        # 整条消失（cv2.polylines 画不出来），那块掩码就没主了
                                        [[(300.0, 300.0), (1200.0, 800.0)]],
@@ -3266,7 +3321,8 @@ def run_selftest(args):
         d4 = win.doc
         check("没缓存时给的是空掩码、**没跑模型**（worker 都没建）",
               d4 is not None and not d4.store.pred.any() and d4.prob is None
-              and d4.check_box is None and win.worker is None,
+              and list(d4.check_box) == [1, 2, 3, 4]      # 标注里的框跟着搬运包过来
+              and win.worker is None,
               f"红层 {0 if d4 is None else int((d4.store.pred > 0).sum())}px / worker={win.worker}")
         check("不预测也照样把别的模型里的折线搬来", len(d4.polylines) == 1
               and tuple(d4.polylines[0][0]) == (300.0, 300.0),
@@ -3433,9 +3489,10 @@ def run_backfill_masks(args):
         out = IO.save_annotation(
             p.stem, p.name, store.pred.shape, store.final_mask(),
             [list(map(tuple, l)) for l in meta.get("polylines", [])],
-            stem_polygons=() if meta.get("drop_stem") else (meta.get("stem_polys") or ()),
-            check_box=None if meta.get("drop_check") else meta.get("check_box"),
-            drop_stem=bool(meta.get("drop_stem")), drop_check=bool(meta.get("drop_check")),
+            # 工具只管 root：stem/check 只写缓存里**标注**里有的（现在 meta 里那两个字段
+            # 就是标注来的，不再是模型预测）
+            stem_polygons=meta.get("stem_polys") or (),
+            check_box=meta.get("check_box"),
             src_image=p, datasets_dir=args.datasets, move_pictures=False,
             poly_width=meta.get("poly_width"))
         print(f"  {p.stem}: root 多边形 {out['n_root_poly']} 个 / 折线 "

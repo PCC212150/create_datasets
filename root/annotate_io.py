@@ -164,19 +164,16 @@ def predict_one(model, img: np.ndarray, meta: dict, device, tile: int = 0):
     """
     res = predict_mod.predict(model, img, max_side=meta.get("size") or config.MAX_SIDE,
                               stride=config.STRIDE, device=device, tile=tile)
-    masks = res["masks"]
-    stem_polys = ()
-    if len(masks) > predict_mod.CH_STEM and masks[predict_mod.CH_STEM] is not None:
-        stem_polys = [tuple(p) for p in mask_to_polygons(
-            masks[predict_mod.CH_STEM], approx_px=ROOT_POLY_APPROX_PX,
-            min_area=ROOT_POLY_MIN_AREA)]
+    # **只产出 root**（2026-10-11 用户定的）：茎不再抽多边形、也不存进标注 ——
+    # 茎/检查框这些由 labelme 自己标（标了的话工具会显示、也会原样保留）。
+    # 检查框仍然要算：它是**内部 ROI**，`mask_from_prob` 靠它把根限制在托盘范围内，
+    # 所以照旧从 check 通道取，只是不再当"标注"写出去（叫 roi_box）。
     return {
         "pred": (res["mask_counted"].astype(np.uint8) * 255),
         "prob": np.ascontiguousarray(res["prob_target"], dtype=np.float32),
-        "check_box": res["check_box"],
-        "check_ok": bool(res["check_ok"]),
+        "roi_box": res["check_box"],
+        "roi_ok": bool(res["check_ok"]),
         "root_ok": bool(res.get("root_ok", True)),
-        "stem_polys": stem_polys,
         "low_thresh": DEFAULT_LOW_THRESH,
     }
 
@@ -610,17 +607,19 @@ def _blend_mask(img: np.ndarray, mask: np.ndarray, color, alpha: float = 0.45):
 
 
 def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines,
-                    stem_polygons=(), check_box=None, drop_stem=False, drop_check=False,
+                    stem_polygons=(), check_box=None,
                     src_image: Path = None, datasets_dir=None,
                     poly_width: float = None, builder=None,
                     move_pictures: bool = True, save_mask: bool = True):
     """写 `datasets\\<名>.json` + `datasets\\overlay\\<名>_overlay.jpg` + 原图。
 
-    json 里的四种形状（labelme 6.x，与既有标注**同格式**，labelme 能直接打开）：
-        root  polygon         最终掩码的轮廓 —— 这是**掩码真值**（新口径：根的真实轮廓）
+    json 里的形状（labelme 6.x，与既有标注**同格式**，labelme 能直接打开）：
+        root  polygon         最终掩码的轮廓 —— 这是**掩码真值**（根的真实轮廓）
         root  linestrip       用户画的折线 —— 代表**根系长度**，供以后算根长用
-        stem  polygon         模型预测的茎（按 D 丢弃则不写）
-        check_background rectangle  模型预测的检查框（按 K 丢弃则不写）
+        stem  polygon         **不产出**：工具只管 root。`stem_polygons` / `check_box`
+        check_background rectangle   是给"已有标注"留的口子 —— 传进来就原样写出去，
+                              不传（默认）就一个都不写。labelme 标的那些靠这个保住，
+                              工具自己**不生成也不删除**（2026-10-11 用户定的）。
 
     **overlay 必须放子目录**：`datasets\\<名>_overlay.jpg` 会被 `tool\\separate_dataset`
     按文件名主干当成一个**独立的"只有图没有标注"的组**参与划分（它只按 stem 分组），
@@ -644,8 +643,7 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
     tmp = json_path.with_suffix(".json.tmp")
     write_labelme_json(tmp, image_height=h, image_width=w, polylines=lines,
                        root_polygons=root_polys, image_path=image_name,
-                       check_box=None if drop_check else check_box,
-                       stem_polygons=() if drop_stem else stem_polygons)
+                       check_box=check_box, stem_polygons=stem_polygons)
     # write_labelme_json 按输出名推 imagePath，这里必须显式给**原图文件名**：
     # labelme 靠它在 json 同级目录找图，而 datasets\\ 里的图是硬链接过来的那一份。
     os.replace(tmp, json_path)
@@ -683,8 +681,7 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
     img = image_io.load_rgb(read_from) if read_from is not None else None
     if img is not None:
         ov = make_overlay_jpg(img, final_mask, polylines=lines,
-                              stem_polygons=() if drop_stem else stem_polygons,
-                              check_box=None if drop_check else check_box)
+                              stem_polygons=stem_polygons, check_box=check_box)
         ov_dir = d / OVERLAY_SUBDIR
         ov_dir.mkdir(parents=True, exist_ok=True)
         from PIL import Image
@@ -699,9 +696,15 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
 
 
 def meta_for_save(model_name, img_shape, stem, image_name, low_thresh,
-                  check_box, check_ok, stem_polys, drop_stem, drop_check, polylines,
-                  prob=None, poly_width=None):
-    """攒一份缓存用的元信息（与 load_cache 读回的字段一一对应）。"""
+                  check_box, check_ok, stem_polys, polylines,
+                  prob=None, poly_width=None, roi_box=None, roi_ok=None):
+    """攒一份缓存用的元信息（与 load_cache 读回的字段一一对应）。
+
+    两组别混：
+      · `check_box` / `check_ok` / `stem_polys` = **标注里**有的（labelme 标的，显示 + 存盘照原样留着）；
+      · `roi_box` / `roi_ok` = 模型的内部 ROI，只用来把根限制在托盘范围内（调松紧时重算要用）。
+    2026-10-11 起工具不再自己产出 stem/check，所以前者只可能来自已有标注。
+    """
     return {
         "model": model_name, "image": image_name, "stem": stem,
         "h": int(img_shape[0]), "w": int(img_shape[1]),
@@ -709,7 +712,8 @@ def meta_for_save(model_name, img_shape, stem, image_name, low_thresh,
         "poly_width": (float(poly_width) if poly_width is not None
                        else float(ROOT_POLY_WIDTH_DEFAULT)),
         "check_ok": bool(check_ok), "stem_polys": [list(map(list, p)) for p in stem_polys],
-        "drop_stem": bool(drop_stem), "drop_check": bool(drop_check),
+        "roi_box": list(roi_box) if roi_box else None,
+        "roi_ok": bool(roi_ok) if roi_ok is not None else bool(check_ok),
         "polylines": [list(map(list, p)) for p in polylines],
         "prob": prob,
     }
