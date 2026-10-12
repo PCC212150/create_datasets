@@ -40,6 +40,8 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
     F5             重新扫描目录（在资源管理器里删/加了图片之后用）
     工具栏「预测」开关           关掉就不跑模型：没缓存的图给空掩码从零标（折线照样搬）
                                  当前这张的红层也一起清掉（Ctrl+Z 可恢复）
+    工具栏「只存折线」开关       没有掩码的图保存只写折线：不造 root 多边形、不写
+                                 masks\、不写 overlay（有掩码的图不受影响，见 readme）
     工具栏最左「模型」下拉框     换模型立刻生效（人做的折线/涂改跟着走，见 readme「切换模型」）
     Ctrl+R         清空所有修改，回到纯预测（可撤销）      F1 键位帮助
 
@@ -49,6 +51,9 @@ r"""根系标注工具（PyQt5）—— 模型先预测，人只改错的地方�
                             掩码缺的段用带宽补上）+ root 折线（根长）。
                             **工具不产出 stem/check_background**（2026-10-11 起）：json 里
                             已有的话原样保留，labelme 标的那些靠这样保住
+    datasets\masks\<名>.png 最终掩码（训练直接吃这份，**优先于 json**）。开着
+                            「只存折线」存出来的图**故意没有这一份**（没有掩码可写，
+                            全黑的 png 会被训练当成"这张图没有根"的负样本）
     datasets\<名>.jpg       原图（硬链接过来的，让 datasets\ 直接能训练）
     datasets\overlay\<名>_overlay.jpg   原图 + 最终掩码 + 折线的验收图
     cache\<模型名>\         中间状态（掩码/概率图/折线），删了只是重新预测
@@ -195,7 +200,7 @@ class PredictWorker(QThread):
 
 # 自检项数。**它就是版本指纹**：F1 里会显示，别人拷来的旧版本报错时报一句"我这是 94 项"
 # 就能立刻分辨。run_selftest 最后有一条钉住它，改了自检不改这里会报失败。
-SELFTEST_CHECKS = 143
+SELFTEST_CHECKS = 157
 
 
 def build_info() -> str:
@@ -1098,6 +1103,15 @@ class MainWindow(QMainWindow):
             # 那样第 6/7/8 段的"打开图"会全走"不预测 → 空掩码"那条路，一堆检查跟着挂
             # （2026-10-09 真踩过）。这个开关本身由第 9 段专门测。
             self.predict_on = True
+        # 「只存折线」开关（工具级、记住，用户 2026-10-11 定的）：开着时，**没有掩码**的
+        # 图保存只写折线 —— 不造 root 多边形（空掩码下多边形是拿折线膨胀出来的假货）、
+        # 不写全黑 masks\<名>.png（训练掩码优先，会把有折线的图当成"没有根"的负样本）、
+        # 不写 overlay。有掩码的图不受影响，保存照旧（掩码也存）。理由见 _lines_only_save。
+        self.save_lines_only = bool(IO.load_settings().get("save_lines_only", False))
+        if args.selftest:
+            # 同 predict：自检不读用户的偏好，保证既有的"保存"检查全走老路径；
+            # 这个开关本身由自检最后一段专门测。
+            self.save_lines_only = False
         self.width_box = None                        # 带宽旋钮（_make_toolbar 里创建）
         self.model_box = None                        # 模型下拉框（同上）
         self._switching = False                      # 换模型的重入闸（信号是程序化回滚会再触发）
@@ -1695,9 +1709,14 @@ class MainWindow(QMainWindow):
         doc = self.doc
         if doc is None:
             return False
+        fm = doc.final_mask()          # 只算一次：下面判空、弹窗、存盘用的是同一份
+        fm_empty = not fm.any()
+        # 「只存折线」（开关开着 + 掩码空）：这次**不造多边形、不写 masks、不写 overlay**，
+        # json 只更新折线 —— 理由见 _lines_only_save。
+        lines_only = self._lines_only_save(doc, mask_empty=fm_empty)
         # 新的多边形口径是"**每条折线一个**"，所以一张有根却没折线的图存出来会是
         # **零个 root 多边形** = 被当成"这张图没有根"的负样本。这种事不能悄无声息地发生。
-        if not doc.polylines and doc.final_mask().any():
+        if not doc.polylines and not fm_empty:
             r = QMessageBox.warning(
                 self, "还没有画折线",
                 "root 多边形是**每条折线一个**：现在一条折线都没有，存出来这张图的 root "
@@ -1710,7 +1729,8 @@ class MainWindow(QMainWindow):
         # 多半是关掉「预测」/清掉红层之后就存了盘 —— 存出去 root 真值是空的，训练会当成
         # **负样本**（把有根学成没根）。2026-10-11 在 datasets\ 里抓到一张 plant_S001-3：
         # json 里 40 个 root 多边形，masks\ 那张 PNG 却是全黑。
-        if doc.polylines and not doc.final_mask().any():
+        # （开着「只存折线」时这里就是**正规走法**：本来就不写掩码，不再追问；关着照旧拦。）
+        if not lines_only and doc.polylines and fm_empty:
             r = QMessageBox.warning(
                 self, "掩码是空的",
                 "这张图有折线，但掩码一个像素都没有 —— 存出去的 root 真值会是空的，"
@@ -1739,12 +1759,12 @@ class MainWindow(QMainWindow):
                 if r != QMessageBox.Save:
                     return False
             out = IO.save_annotation(
-                doc.stem, doc.image_name, doc.img.shape, doc.final_mask(),
+                doc.stem, doc.image_name, doc.img.shape, fm,
                 doc.polylines, stem_polygons=kept["stems"], check_box=kept["check"],
                 extra_shapes=kept["raw"],
                 src_image=doc.path, datasets_dir=self.args.datasets,
                 poly_width=doc.poly_width, builder=doc.poly_builder,
-                move_pictures=not self.args.keep_pictures)
+                move_pictures=not self.args.keep_pictures, lines_only=lines_only)
             # 名字跟着 **doc** 走，不跟 self 走：两者分别写进 meta 和缓存目录
             # （doc.cache_dir），取两个来源的话，换模型之后一个不慎就是
             # "新名字 + 旧目录"，也就是跨模型污染
@@ -1775,9 +1795,20 @@ class MainWindow(QMainWindow):
         if pi.get("n_dropped_blocks"):
             extra += (f" | 丢掉 {pi['n_dropped_blocks']} 块没有折线经过的掩码"
                       f"（{pi['dropped_area']} px）")
-        self.flash(f"已保存 {doc.stem}：root 多边形 {out['n_root_poly']}（每条折线一个）"
-                   f" + 折线 {out['n_polyline']} | {' + '.join(out['saved'])} | "
-                   f"{time.time() - t0:.1f}s{extra}")
+        if out.get("lines_only"):
+            # 以前存的 masks\<名>.png 工具**不动**，但必须说一句：训练优先读它
+            # （root_model\common\dataset.py:load_root_mask_png）—— 留着它，这次存的折线
+            # 在训练里就还是被那张 png 压着。只提醒，不删（工具从不删标注产物）。
+            stale = Path(out["json"]).parent / IO.MASK_SUBDIR / f"{doc.stem}.png"
+            self.flash(f"已保存（只存折线）{doc.stem}：折线 {out['n_polyline']} 条 | "
+                       f"{' + '.join(out['saved'])} | {time.time() - t0:.1f}s"
+                       f"（这张图没有掩码：没写 masks\\、没造多边形、没写 overlay）"
+                       + (f"｜注意：{IO.MASK_SUBDIR}\\{stale.name} 还在"
+                          f"（训练仍优先用它）" if stale.exists() else ""))
+        else:
+            self.flash(f"已保存 {doc.stem}：root 多边形 {out['n_root_poly']}（每条折线一个）"
+                       f" + 折线 {out['n_polyline']} | {' + '.join(out['saved'])} | "
+                       f"{time.time() - t0:.1f}s{extra}")
         if go_next:
             nxt = self.idx + 1
             if nxt < len(self.images):
@@ -1801,6 +1832,13 @@ class MainWindow(QMainWindow):
         lines = doc.polylines + ([doc.cur_line] if len(doc.cur_line) >= 2 else [])
         if not lines:
             doc.polygons, doc.poly_info = [], {"n_lines": 0, "n_empty": 0,
+                                               "n_dropped_blocks": 0, "dropped_area": 0,
+                                               "width": doc.poly_width}
+        elif self._lines_only_save(doc):
+            # 「只存折线」开着 + 掩码空：存盘**不会写多边形**（builder 会拿折线凭空
+            # 补出"带"，那是假真值）—— 预览必须跟存盘一致，不然紫色轮廓在骗人
+            # （"预览显示的形状和存出来的不一样"是这个文件里最难查的一类 bug）。
+            doc.polygons, doc.poly_info = [], {"n_lines": len(lines), "n_empty": 0,
                                                "n_dropped_blocks": 0, "dropped_area": 0,
                                                "width": doc.poly_width}
         else:
@@ -1870,6 +1908,39 @@ class MainWindow(QMainWindow):
                     min(check[0], box[0]), min(check[1], box[1]),
                     max(check[2], box[2]), max(check[3], box[3]))
         return {"stems": stems, "check": check, "raw": raw}
+
+    def _lines_only_save(self, doc, mask_empty=None):
+        """这次保存/预览要不要走「只存折线」：开关开着 **且** 掩码一个像素都没有。
+
+        掩码空 + 有折线 =「这张图有根、掩码还没修出来」，不是负样本。这种图按老路径
+        存出去有两处害：json 里的 root 多边形是拿折线按带宽**膨胀出来的假货**（训练里
+        多边形优先于折线，等于真值被掉包）；masks\\<名>.png 写成**全黑**，而训练掩码
+        优先用它 → 有根的图被当成"没有根"的负样本。用户 2026-10-11 定的口径：
+        没有掩码就只写折线；**有掩码一律照旧**（掩码也存，开关不影响）。
+        mask_empty 允许外面传进来 —— save / _recompute_polygons 手头已经有掩码了。
+        """
+        if not self.save_lines_only or doc is None:
+            return False
+        if mask_empty is None:
+            mask_empty = not doc.final_mask().any()
+        return bool(mask_empty)
+
+    def set_save_lines_only(self, on):
+        """「只存折线」开关（工具栏上那个，工具级、记得住）。
+
+        只在"没有掩码的图"上起作用：保存时不造 root 多边形、不写 masks png、不写
+        overlay，「掩码是空的」也不再拦（见 _lines_only_save）。**有掩码的图一律照旧**：
+        掩码、多边形、overlay 全写。两种情况下缓存都照常存（折线在 meta 里，涂改不丢）。
+        """
+        self.save_lines_only = bool(on)
+        IO.save_settings({"save_lines_only": self.save_lines_only})
+        if self.doc is not None:
+            self.schedule_polygons()      # 预览口径跟着变（见 _recompute_polygons）
+        self.update_status()
+        self.flash("只存折线：开着 —— 没有掩码的图保存只写折线（不造多边形、"
+                   "不写全黑 masks、不写 overlay）；有掩码的图保存照旧（掩码也存）"
+                   if self.save_lines_only else
+                   "只存折线：关了 —— 保存回到老样子（掩码空时会先拦一道问要不要存）")
 
     def set_predict(self, on):
         """「预测」开关（工具栏上那个，工具级、记得住）。
@@ -2128,6 +2199,26 @@ class MainWindow(QMainWindow):
             tb.insertAction(anchor, self.predict_action)
         else:
             tb.addAction(self.predict_action)
+        # 「只存折线」开关：**紧挨「预测」**（两个都是"这张图存出去长什么样"的开关，
+        # 放一起才找得到），同样插在「自动起草折线」前面 —— 别掉进 ">>" 溢出菜单。
+        self.lines_action = QAction("只存折线", self)
+        self.lines_action.setCheckable(True)
+        self.lines_action.setChecked(self.save_lines_only)
+        self.lines_action.setToolTip(
+            "开着时：**没有掩码的图**（预测没出东西 / 关了预测）保存只写折线 ——\n"
+            "不造 root 多边形（空掩码下多边形是拿折线膨胀出来的假货）、\n"
+            "不写全黑的 masks\\<名>.png（训练里掩码优先，会把有折线的图当成\n"
+            "「没有根」的负样本）、不写 overlay；「掩码是空的」那道提示也不再弹\n"
+            "**有掩码的图不受影响**：保存和现在一样（掩码 + 多边形 + overlay 全写）\n"
+            "缓存两种情况下都照常存（折线、涂改不丢，下次打开还在）\n"
+            "以前存的 masks png 不删，但会提醒一句（训练仍然优先用它）\n"
+            "没有快捷键（和「预测」一样，故意不绑）")
+        self.lines_action.toggled.connect(self.set_save_lines_only)
+        self.lines_action.setShortcut("")
+        if anchor is not None:
+            tb.insertAction(anchor, self.lines_action)   # 落在「预测」右边
+        else:
+            tb.addAction(self.lines_action)
         tb.addSeparator()
         tb.addWidget(QLabel(" 折线带宽 "))
         self.width_box = QSpinBox()
@@ -2196,6 +2287,7 @@ class MainWindow(QMainWindow):
                 if doc.poly_info and doc.poly_info.get("n_dropped_blocks") else "")
              ) if doc.polygons is not None else "",
             "不预测" if not self.predict_on else "",
+            "只存折线" if self.save_lines_only else "",
             "未保存*" if doc.dirty else "",
         ]
         self.status.setText(" | ".join(x for x in parts if x))
@@ -2303,8 +2395,8 @@ KEYS_HELP = """阶段 1 · 修掩码（红=模型预测的根）
   PgDn / PgUp       下一张 / 上一张      F5  重新扫描目录（外部删/加了图片后刷新列表）
   中键拖动 / 空格+左键拖动   平移      Ctrl+滚轮 / + -  缩放
   Ctrl+0 适应窗口   Ctrl+1 100%        F1  这个帮助
-  工具栏按钮「丢弃stem / 丢弃check」  本图不写这两个标注（再点恢复）——
-                                      **故意没有快捷键**：按错了会把整张图的标注丢掉"""
+  工具栏开关「只存折线」  没有掩码的图保存只写折线 —— 不造 root 多边形、不写全黑 masks\\（训练会当成"这张图没有根"的负样本）、不写 overlay；有掩码的图不受影响。
+                                      （没有快捷键，和「预测」一样故意不绑）"""
 
 
 # ------------------------------------------------------------------ 无界面模式
@@ -2606,6 +2698,47 @@ def run_selftest(args):
     _, info_w = RootPolygonBuilder(m.shape).polygons(m, test_lines, 40)
     check("带宽可调（40px 时补出来的带更粗）",
           info_w["width"] == 40, f"实际用宽 {info_w['width']}")
+
+    print("== 5d. 「只存折线」：掩码空时不写多边形 / masks png / overlay ==")
+    # 用户 2026-10-11 定的口径：只有折线、没有掩码的图，保存只写折线。老路径在这种图
+    # 上有两处害：root 多边形是拿折线按带宽**膨胀出来的假货**（训练里多边形优先于
+    # 折线，真值等于被掉包）；masks\<名>.png 写成**全黑**，而训练掩码优先用它 ——
+    # 有根的图就成了"没有根"的负样本。
+    _lo_dir = Path(out_dir) / "_lines_only"
+    _lo_dir.mkdir(exist_ok=True)
+    _lo_mask = np.zeros(img.shape[:2], np.uint8)          # 空掩码 = 这一段的主题
+    _lo_lines = [[(100.0, 300.0), (900.0, 320.0)], [(100.0, 900.0), (900.0, 920.0)]]
+    _lo_extra = [{"label": "stem", "shape_type": "polygon",
+                  "points": [[1.0, 2.0], [3.0, 2.0], [3.0, 4.0]], "flags": {"a": 1}},
+                 {"label": "自定义的label", "shape_type": "point",
+                  "points": [[9.0, 9.0]], "flags": {"note": "别动我"}}]
+    _lo = IO.save_annotation("_selftest_lines_only", path.name, img.shape, _lo_mask,
+                             _lo_lines, extra_shapes=_lo_extra, src_image=path,
+                             datasets_dir=_lo_dir, move_pictures=False, lines_only=True)
+    _lo_body = json.load(open(_lo["json"], encoding="utf-8"))
+    _lo_root = [s for s in _lo_body["shapes"] if s.get("label") == "root"]
+    check("只存折线：json 里 root 全是 linestrip、零个 root polygon",
+          len(_lo_root) == 2 and all(s["shape_type"] == "linestrip" for s in _lo_root),
+          f"{[(s['label'], s['shape_type']) for s in _lo_body['shapes']]}")
+    check("只存折线：不写 masks\\<名>.png（全黑 = 训练眼里的负样本）",
+          not (_lo_dir / IO.MASK_SUBDIR / "_selftest_lines_only.png").exists())
+    check("只存折线：不写 overlay",
+          not (_lo_dir / IO.OVERLAY_SUBDIR / "_selftest_lines_only_overlay.jpg").exists())
+    check("只存折线：非 root 形状原样保住（连 flags 都不动）",
+          [s for s in _lo_body["shapes"] if s.get("label") != "root"] == _lo_extra)
+    check("只存折线：返回值 n_root_poly=0 / n_polyline=2 / lines_only=True",
+          _lo["n_root_poly"] == 0 and _lo["n_polyline"] == 2
+          and _lo["lines_only"] is True)
+    # 对照组：不传 lines_only 时照旧 —— 空掩码会写全黑 png、折线被膨胀成多边形
+    # （工具里有「掩码是空的」那道弹窗拦着）。钉死"开关关着 = 老行为"。
+    _lo_ct = IO.save_annotation("_selftest_lines_ctrl", path.name, img.shape, _lo_mask,
+                                _lo_lines, src_image=path, datasets_dir=_lo_dir,
+                                move_pictures=False)
+    _lo_ct_png = _lo_dir / IO.MASK_SUBDIR / "_selftest_lines_ctrl.png"
+    check("对照（开关关着的老路径）：空掩码照样写 masks png + 膨胀出多边形",
+          _lo_ct_png.exists() and _lo_ct["n_root_poly"] > 0
+          and _lo_ct["lines_only"] is False,
+          f"多边形 {_lo_ct['n_root_poly']} 个 / masks png 在={_lo_ct_png.exists()}")
 
     print("== 6. 界面（offscreen，真开窗口 + 合成鼠标事件）==")
     # 上面几段验的是数据；这一段验的是接线 —— paintEvent/事件处理/保存这条路上
@@ -3395,6 +3528,40 @@ def run_selftest(args):
         win.set_dirty(False)
         check("有折线但掩码全空：存盘被拦下（不该存成负样本）",
               win.save(go_next=False) is False)
+        # ---- 9b. 同一个状态（有折线、掩码全空），「只存折线」开着就该**不拦、直接存** ----
+        print("== 9b. 「只存折线」开关（没掩码的图：只写折线）==")
+        _n_asked = len(asked)
+        check("自检忽略用户的「只存折线」偏好（起点是关）", win.save_lines_only is False)
+        win.lines_action.setChecked(True)     # 走按钮真的那条路
+        check("打开开关：状态栏有标记、settings 记住（且没抹掉 predict / 带宽）",
+              win.save_lines_only is True and "只存折线" in win.status.text()
+              and IO.load_settings().get("save_lines_only") is True
+              and "predict" in IO.load_settings()
+              and "poly_width" in IO.load_settings())
+        win._recompute_polygons()
+        check("开着开关：预览也归零（预览 = 会存出去的样子，不能画假多边形）",
+              win.doc.polygons == [], f"{win.doc.polygons}")
+        _d4_stem = win.doc.stem
+        _fake_png = Path(args.datasets) / IO.MASK_SUBDIR / f"{_d4_stem}.png"
+        _fake_png.parent.mkdir(parents=True, exist_ok=True)
+        _fake_png.write_bytes(b"old")         # 假装以前完整存过（第 5 段真写过这张）
+        check("开着开关 + 掩码空：不弹「掩码是空的」，直接存成功",
+              win.save(go_next=False) is True and len(asked) == _n_asked,
+              f"弹了 {len(asked) - _n_asked} 个提示")
+        _d4_body = json.load(open(Path(args.datasets) / f"{_d4_stem}.json",
+                                  encoding="utf-8"))
+        _d4_root = [s for s in _d4_body["shapes"] if s.get("label") == "root"]
+        check("只存折线：json 里 root 只剩折线、零个多边形",
+              len(_d4_root) == 1 and _d4_root[0]["shape_type"] == "linestrip",
+              f"{[(s['label'], s['shape_type']) for s in _d4_body['shapes']]}")
+        check("只存折线：masks\\ 里那张老 png 没被写、也没被动",
+              _fake_png.read_bytes() == b"old")
+        check("只存折线：flash 点名「训练仍优先用它」（不删，但得说）",
+              "训练仍优先用它" in win.status2.text() and _d4_stem in win.status2.text())
+        win.lines_action.setChecked(False)
+        win.set_dirty(True)
+        check("关掉开关：同一张图又回到「先拦一道」的老口径",
+              win.save(go_next=False) is False and len(asked) > _n_asked)
         d4.store.begin_stroke()
         d4.store.paint_segment(500, 500, 900, 500, 40, core.MODE_ADD)   # 涂在那条折线旁边
         d4.store.end_stroke()
@@ -3417,6 +3584,10 @@ def run_selftest(args):
         win.predict_action.blockSignals(True)
         win.predict_action.setChecked(True)
         win.predict_action.blockSignals(False)
+        win.save_lines_only = False
+        win.lines_action.blockSignals(True)
+        win.lines_action.setChecked(False)
+        win.lines_action.blockSignals(False)
         if _saved_settings3 is None:
             IO.SETTINGS_PATH.unlink(missing_ok=True)
         else:
@@ -3580,17 +3751,26 @@ def run_backfill_masks(args):
         # 走**保存那条正式路径**（而不是自己拼一遍）：json、掩码、overlay 三样一起重生成，
         # 口径永远和"在工具里按一次 Ctrl+S"一致。move_pictures=False —— 图早就在
         # datasets 里了，别再去动 pictures。
+        fm = store.final_mask()
+        # 和工具里「只存折线」同一个判据（2026-10-11 用户定的）：有折线、掩码却是空的
+        # 图，按正式保存会把折线膨胀成假多边形 + 写一张全黑 masks —— 这条 CLI 没有
+        # 弹窗拦得住，所以在这里直接按"只存折线"办。纯负样本图（没折线）行为不变。
         out = IO.save_annotation(
-            p.stem, p.name, store.pred.shape, store.final_mask(),
+            p.stem, p.name, store.pred.shape, fm,
             [list(map(tuple, l)) for l in meta.get("polylines", [])],
             # 工具只管 root：stem/check 只写缓存里**标注**里有的（现在 meta 里那两个字段
             # 就是标注来的，不再是模型预测）
             stem_polygons=meta.get("stem_polys") or (),
             check_box=meta.get("check_box"),
             src_image=p, datasets_dir=args.datasets, move_pictures=False,
-            poly_width=meta.get("poly_width"))
-        print(f"  {p.stem}: root 多边形 {out['n_root_poly']} 个 / 折线 "
-              f"{out['n_polyline']} 条 -> {out['json'].name} + masks/")
+            poly_width=meta.get("poly_width"),
+            lines_only=bool(meta.get("polylines")) and not fm.any())
+        if out.get("lines_only"):
+            print(f"  {p.stem}: 掩码是空的，按「只存折线」办 -> {out['json'].name}"
+                  f"（{out['n_polyline']} 条折线；没写 masks/）")
+        else:
+            print(f"  {p.stem}: root 多边形 {out['n_root_poly']} 个 / 折线 "
+                  f"{out['n_polyline']} 条 -> {out['json'].name} + masks/")
         n_ok += 1
     print(f"补了 {n_ok} 张" + (f"，{n_skip} 张没有缓存被跳过" if n_skip else ""))
     return 0

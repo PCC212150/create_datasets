@@ -634,7 +634,8 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
                     stem_polygons=(), check_box=None, extra_shapes=(),
                     src_image: Path = None, datasets_dir=None,
                     poly_width: float = None, builder=None,
-                    move_pictures: bool = True, save_mask: bool = True):
+                    move_pictures: bool = True, save_mask: bool = True,
+                    lines_only: bool = False):
     """写 `datasets\\<名>.json` + `datasets\\overlay\\<名>_overlay.jpg` + 原图。
 
     json 里的形状（labelme 6.x，与既有标注**同格式**，labelme 能直接打开）：
@@ -645,6 +646,12 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
                               不传（默认）就一个都不写。labelme 标的那些靠这个保住，
                               工具自己**不生成也不删除**（2026-10-11 用户定的）。
 
+    `lines_only=True`（"只存折线"，用户 2026-10-11 定的）：**一条 root 多边形都不造、
+    掩码和 overlay 都不写**，json 里只更新折线（+ 原样搬来的非 root 形状）。给"只有
+    折线、没有掩码"的图用 —— 那种图跑多边形会把折线按带宽**膨胀成假多边形**，再写
+    一张**全黑**的 masks\\<名>.png，而训练侧掩码优先，等于把有折线的图当成"没有根"的
+    负样本（annotate_root.save() 里那个「掩码是空的」弹窗防的就是这件事）。
+
     **overlay 必须放子目录**：`datasets\\<名>_overlay.jpg` 会被 `tool\\separate_dataset`
     按文件名主干当成一个**独立的"只有图没有标注"的组**参与划分（它只按 stem 分组），
     也可能被别的扫描器当第二张图；放进子目录后 `iterdir()` 不递归，没人会看见它。
@@ -654,14 +661,19 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
     d = Path(datasets_dir or DATASETS_DIR)
     d.mkdir(parents=True, exist_ok=True)
     h, w = int(img_shape[0]), int(img_shape[1])
-    # **每条折线一个多边形**（口径见 RootPolygonBuilder）：轮廓来自掩码、缺处用
-    # 宽 poly_width 的带补上。不是"把整张掩码抽成一个多边形"。
-    b = builder if builder is not None else RootPolygonBuilder(img_shape)
-    polys, poly_info = b.polygons(final_mask, polylines,
-                                  ROOT_POLY_WIDTH_DEFAULT if poly_width is None
-                                  else poly_width)
-    # polys 是**逐折线分组**的（一条折线可能出多个多边形，见 polygons 的说明）→ 摊平
-    root_polys = [tuple(p) for group in polys for p in group]
+    if lines_only:
+        # 只存折线：**不跑 builder**。空掩码下调它是纯害：缺段全被判"缺"→ 整条折线
+        # 按 poly_width 膨胀成一条走廊，冒充 root 多边形写进 json。
+        root_polys, poly_info = [], None
+    else:
+        # **每条折线一个多边形**（口径见 RootPolygonBuilder）：轮廓来自掩码、缺处用
+        # 宽 poly_width 的带补上。不是"把整张掩码抽成一个多边形"。
+        b = builder if builder is not None else RootPolygonBuilder(img_shape)
+        polys, poly_info = b.polygons(final_mask, polylines,
+                                      ROOT_POLY_WIDTH_DEFAULT if poly_width is None
+                                      else poly_width)
+        # polys 是**逐折线分组**的（一条折线可能出多个多边形，见 polygons 的说明）→ 摊平
+        root_polys = [tuple(p) for group in polys for p in group]
     lines = [tuple(p) for p in polylines if len(p) >= 2]
     json_path = d / f"{stem}.json"
     tmp = json_path.with_suffix(".json.tmp")
@@ -689,7 +701,9 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
 
     saved = [json_path.name]
     # ---- 像素级 root 掩码（训练直接吃的那份）----
-    if save_mask:
+    # lines_only 一律不写：这张图没有掩码，写出去只会是一张**全黑**的 png，
+    # 而训练侧掩码优先用它 → 有折线的图被当成"没有根"的负样本。
+    if save_mask and not lines_only:
         mp = save_mask_png(d, stem, build_mask_png(final_mask))
         saved.append(f"{MASK_SUBDIR}/{mp.name}")
     dst_img = None
@@ -717,7 +731,10 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
     # 再读 src_image 就是 FileNotFoundError —— json 和原图已经写下去了，overlay 却没了，
     # 而且异常会一路冒到界面上弹"保存失败"。dst_img 才是此刻的权威副本。
     read_from = dst_img if dst_img is not None else src_image
-    img = image_io.load_rgb(read_from) if read_from is not None else None
+    # lines_only 也不画 overlay：overlay 是"掩码 + 折线"的验收图，没有掩码的图存一张
+    # 只有折线的 overlay 只会让以后翻图的人以为这里标过掩码。
+    img = (image_io.load_rgb(read_from)
+           if (read_from is not None and not lines_only) else None)
     if img is not None:
         ov = make_overlay_jpg(img, final_mask, polylines=lines,
                               stem_polygons=stem_polygons, check_box=check_box)
@@ -728,7 +745,7 @@ def save_annotation(stem: str, image_name: str, img_shape, final_mask, polylines
         Image.fromarray(ov).save(ov_path, quality=88)
         saved.append(f"{OVERLAY_SUBDIR}/{ov_path.name}")
     return {"json": json_path, "n_root_poly": len(root_polys), "n_polyline": len(lines),
-            "saved": saved, "poly_info": poly_info,
+            "saved": saved, "poly_info": poly_info, "lines_only": bool(lines_only),
             # 原图现在的真实位置：pictures 里那份可能刚被移走了，
             # 调用方（工具）要拿它更新手里的路径，否则下一次保存就找不到源图了
             "image_path": dst_img if dst_img is not None else src_image}
