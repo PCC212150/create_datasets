@@ -70,7 +70,11 @@ ROOT_POLY_MIN_AREA = 100.0
 # 用户往回拧一点，掩码突然瘦了一圈，像是坏了。截在 0.02 保证全程单调。
 THRESH_MIN, THRESH_MAX, THRESH_STEP = 0.02, 0.60, 0.02
 
-DEFAULT_LOW_THRESH = float(config.PRED_LOW_THRESHOLD)
+# 工具默认的「预测松紧」低阈值（高阈值固定 0.5）。**不再跟训练侧的
+# config.PRED_LOW_THRESHOLD（0.10）走**：2026-10-26 用户定的 —— 新模型固定用 0.60
+# （= 可调上限；低阈值 ≥ 高阈值时滞回退化成 0.5 的硬阈值，掩码最干净）。
+# 训练侧的 `_vendor/config.py` 与 root_model 共用，**不动**它。
+DEFAULT_LOW_THRESH = 0.60
 
 # 折线加宽成带时用的宽度（原图像素）。只在「掩码缺了」的地方起作用 ——
 # 掩码有根的地方，轮廓还是掩码自己的真实宽度。界面上可调（见 annotate_root 的带宽旋钮）。
@@ -165,8 +169,12 @@ def predict_one(model, img: np.ndarray, meta: dict, device, tile: int = 0):
     顺带把茎多边形算好（`mask_to_polygons` 在全分辨率上要几十毫秒），
     主线程只装数据。
     """
+    # **显式传 low_thresh**：不传的话 predict() 会按推理模式自动选（整图 0.10 /
+    # 滑窗 0），于是"缓存里记的阈值"和"实际生成掩码用的阈值"可能对不上。传了 0.60
+    # 之后两边永远是同一个数（用户 2026-10-26 定的）。
     res = predict_mod.predict(model, img, max_side=meta.get("size") or config.MAX_SIDE,
-                              stride=config.STRIDE, device=device, tile=tile)
+                              stride=config.STRIDE, device=device, tile=tile,
+                              low_thresh=DEFAULT_LOW_THRESH)
     # **只产出 root**（2026-10-11 用户定的）：茎不再抽多边形、也不存进标注 ——
     # 茎/检查框这些由 labelme 自己标（标了的话工具会显示、也会原样保留）。
     # 检查框仍然要算：它是**内部 ROI**，`mask_from_prob` 靠它把根限制在托盘范围内，
@@ -280,8 +288,12 @@ def save_cache(cdir, stem, store, meta: dict):
     if meta.get("prob") is not None:
         np.save(cp["prob"], meta["prob"])
     body = {k: v for k, v in meta.items() if k != "prob"}
-    with open(cp["meta"], "w", encoding="utf-8") as f:
+    # meta 也走 tmp + 原子替换：自动备份每 20 秒写一次，被断电/崩溃截在半截的 json
+    # 等于把这张图的缓存（折线/涂改全在里面）弄丢。
+    tmp = cp["meta"].with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(body, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, cp["meta"])
 
 
 # ---------------------------------------------------------------- 折线 -> 多边形
